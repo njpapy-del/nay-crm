@@ -1,0 +1,1464 @@
+// ============================================================
+// LNAYCRM - Prisma Schema
+// Multi-tenant CRM + Call Center + Gestion commerciale
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  MANAGER
+  AGENT
+  QUALITY
+}
+
+enum ClientStatus {
+  PROSPECT
+  ACTIVE
+  INACTIVE
+  DNC
+}
+
+enum TenantPlan {
+  FREE
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+// ─── SaaS enums ──────────────────────────────────────────────────────────────
+
+enum PlanCode {
+  BASIC
+  PRO
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+  CANCELLED
+}
+
+enum SecurityEventType {
+  LOGIN_SUCCESS
+  LOGIN_FAILED
+  PASSWORD_RESET
+  TOKEN_REFRESH
+  FORCE_LOGOUT
+  ACCOUNT_LOCKED
+  PERMISSION_DENIED
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum CallDirection {
+  INBOUND
+  OUTBOUND
+  INTERNAL
+}
+
+enum CallStatus {
+  RINGING
+  ANSWERED
+  BUSY
+  NO_ANSWER
+  FAILED
+  CANCELLED
+}
+
+enum CallDisposition {
+  INTERESTED
+  NOT_INTERESTED
+  CALLBACK
+  WRONG_NUMBER
+  VOICEMAIL
+  DNC
+  SALE
+}
+
+enum AgentAvailability {
+  OFFLINE
+  AVAILABLE
+  RINGING
+  IN_CALL
+  WRAP_UP
+  PAUSED
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  CONVERTED
+  LOST
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  CANCELLED
+  DONE
+}
+
+enum RecordingFormat {
+  WAV
+  MP3
+  OGG
+}
+
+enum CallQualification {
+  SALE
+  APPOINTMENT
+  NOT_INTERESTED
+  CALLBACK
+  WRONG_NUMBER
+  VOICEMAIL
+  DNC
+  OTHER
+}
+
+enum CallLogStatus {
+  PENDING
+  QUALIFIED
+  REVIEWED
+}
+
+enum ContactListStatus {
+  ACTIVE
+  ARCHIVED
+  PROCESSING
+}
+
+enum ContactStatus {
+  NEW
+  CALLED
+  CALLBACK
+  REFUSED
+  OUT_OF_TARGET
+  RECYCLED
+  CONVERTED
+  DNC
+}
+
+enum BlacklistScope {
+  GLOBAL
+  TENANT
+  CAMPAIGN
+}
+
+enum ImportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// ─────────────────────────────────────────
+// Tenant
+// ─────────────────────────────────────────
+
+model Tenant {
+  id          String     @id @default(cuid())
+  name        String
+  slug        String     @unique
+  plan        TenantPlan @default(FREE)
+  subdomain   String?    @unique
+  domain      String?    @unique
+  logoUrl     String?
+  address     String?
+  phone       String?
+  isActive    Boolean    @default(true)
+  trialEndsAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  users            User[]
+  calls            Call[]
+  agentSessions    AgentSession[]
+  clients          Client[]
+  products         Product[]
+  quotes           Quote[]
+  invoices         Invoice[]
+  campaigns        Campaign[]
+  leads            Lead[]
+  appointments     Appointment[]
+  notifications    Notification[]
+  contactLists     ContactList[]
+  contacts         Contact[]
+  importHistories  ImportHistory[]
+  blacklists       Blacklist[]
+  blacklistEntries BlacklistEntry[]
+  recyclingLogs    RecyclingLog[]
+  recordings       Recording[]
+  callLogs         CallLog[]
+  recordingLogs    RecordingAccessLog[]
+  sales            Sale[]
+  qualifications   Qualification[]
+  userSessions     UserSession[]
+  activityLogs     ActivityLog[]
+  kpiDaily         KpiDaily[]
+  kpiMonthly       KpiMonthly[]
+  reports          Report[]
+  alertRules       AlertRule[]
+  subscription     Subscription?
+  securityLogs     SecurityLog[]
+  reminders        Reminder[]
+  scripts          Script[]
+  scriptResponses  ScriptResponse[]
+
+  @@index([slug])
+  @@map("tenants")
+}
+
+// ─────────────────────────────────────────
+// User
+// ─────────────────────────────────────────
+
+model User {
+  id          String    @id @default(cuid())
+  tenantId    String
+  email       String
+  password    String
+  firstName   String
+  lastName    String
+  role        Role      @default(AGENT)
+  isActive    Boolean   @default(true)
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant              Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignedClients     Client[]         @relation("AssignedAgent")
+  refreshTokens       RefreshToken[]
+  quotes              Quote[]          @relation("QuoteCreator")
+  invoices            Invoice[]        @relation("InvoiceCreator")
+  calls               Call[]           @relation("AgentCalls")
+  agentSession        AgentSession?
+  createdCampaigns    Campaign[]       @relation("CampaignCreator")
+  campaignAgents      CampaignAgent[]
+  assignedLeads       Lead[]           @relation("LeadAssignee")
+  agentAppointments   Appointment[]    @relation("AppointmentAgent")
+  notifications       Notification[]
+  createdLists        ContactList[]        @relation("ListCreator")
+  importHistories     ImportHistory[]      @relation("ImportCreator")
+  createdBlacklists   Blacklist[]          @relation("BlacklistCreator")
+  blacklistEntries    BlacklistEntry[]     @relation("BlacklistEntryAdder")
+  recyclingLogs       RecyclingLog[]       @relation("RecyclingAgent")
+  recordingAccessLogs RecordingAccessLog[] @relation("RecordingAccessor")
+  callLogs            CallLog[]            @relation("CallLogAgent")
+  recordings          Recording[]          @relation("AgentRecordings")
+  sales               Sale[]               @relation("AgentSales")
+  saleLogs            SaleLog[]            @relation("SaleLogAuditor")
+  userSessions        UserSession[]
+  activityLogs        ActivityLog[]
+  createdReports      Report[]     @relation("ReportCreator")
+  reminders           Reminder[]
+  createdScripts      Script[]     @relation("ScriptCreator")
+  scriptResponses     ScriptResponse[] @relation("AgentScriptResponses")
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([tenantId, role])
+  @@map("users")
+}
+
+// ─────────────────────────────────────────
+// RefreshToken
+// ─────────────────────────────────────────
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ─────────────────────────────────────────
+// Client
+// ─────────────────────────────────────────
+
+model Client {
+  id              String       @id @default(cuid())
+  tenantId        String
+  firstName       String
+  lastName        String
+  email           String?
+  phone           String
+  company         String?
+  status          ClientStatus @default(PROSPECT)
+  notes           String?
+  assignedAgentId String?
+  customData      Json?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignedAgent User?         @relation("AssignedAgent", fields: [assignedAgentId], references: [id], onDelete: SetNull)
+  quotes        Quote[]
+  invoices      Invoice[]
+  appointments  Appointment[]
+  calls         Call[]
+  sales         Sale[]
+  reminders     Reminder[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, assignedAgentId])
+  @@map("clients")
+}
+
+// ─────────────────────────────────────────
+// Product (catalogue)
+// ─────────────────────────────────────────
+
+model Product {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  description String?
+  unitPrice   Float    @default(0)
+  unit        String   @default("unité")
+  taxRate     Float    @default(20)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  quoteLines QuoteLine[]
+
+  @@index([tenantId])
+  @@map("products")
+}
+
+// ─────────────────────────────────────────
+// Quote (Devis)
+// ─────────────────────────────────────────
+
+model Quote {
+  id          String      @id @default(cuid())
+  tenantId    String
+  clientId    String
+  createdById String
+  number      String
+  status      QuoteStatus @default(DRAFT)
+  validUntil  DateTime?
+  notes       String?
+  subtotal    Float       @default(0)
+  taxAmount   Float       @default(0)
+  total       Float       @default(0)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client    Client     @relation(fields: [clientId], references: [id])
+  createdBy User       @relation("QuoteCreator", fields: [createdById], references: [id])
+  lines     QuoteLine[]
+  invoice   Invoice?
+
+  @@unique([tenantId, number])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("quotes")
+}
+
+model QuoteLine {
+  id          String   @id @default(cuid())
+  quoteId     String
+  productId   String?
+  description String
+  quantity    Float    @default(1)
+  unitPrice   Float    @default(0)
+  taxRate     Float    @default(20)
+  total       Float    @default(0)
+  position    Int      @default(0)
+
+  quote   Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([quoteId])
+  @@map("quote_lines")
+}
+
+// ─────────────────────────────────────────
+// Invoice (Facture)
+// ─────────────────────────────────────────
+
+model Invoice {
+  id          String        @id @default(cuid())
+  tenantId    String
+  clientId    String
+  quoteId     String?       @unique
+  createdById String
+  number      String
+  status      InvoiceStatus @default(DRAFT)
+  dueDate     DateTime?
+  notes       String?
+  subtotal    Float         @default(0)
+  taxAmount   Float         @default(0)
+  total       Float         @default(0)
+  paidAt      DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client    Client        @relation(fields: [clientId], references: [id])
+  quote     Quote?        @relation(fields: [quoteId], references: [id])
+  createdBy User          @relation("InvoiceCreator", fields: [createdById], references: [id])
+  lines     InvoiceLine[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("invoices")
+}
+
+model InvoiceLine {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  description String
+  quantity    Float   @default(1)
+  unitPrice   Float   @default(0)
+  taxRate     Float   @default(20)
+  total       Float   @default(0)
+  position    Int     @default(0)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_lines")
+}
+
+// ─────────────────────────────────────────
+// Campaign (Campagne)
+// ─────────────────────────────────────────
+
+model Campaign {
+  id          String         @id @default(cuid())
+  tenantId    String
+  createdById String
+  name        String
+  description String?
+  status      CampaignStatus @default(DRAFT)
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy     User             @relation("CampaignCreator", fields: [createdById], references: [id])
+  agents        CampaignAgent[]
+  leads         Lead[]
+  appointments  Appointment[]
+  contactLists  ContactList[]    @relation("CampaignContactLists")
+  blacklists    Blacklist[]      @relation("CampaignBlacklists")
+  recordings    Recording[]
+  callLogs      CallLog[]
+  sales         Sale[]
+  settings      CampaignSettings?
+  qualifications Qualification[]
+  scripts        Script[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("campaigns")
+}
+
+model CampaignAgent {
+  id         String   @id @default(cuid())
+  campaignId String
+  agentId    String
+  assignedAt DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  agent    User     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, agentId])
+  @@map("campaign_agents")
+}
+
+// ─────────────────────────────────────────
+// Lead
+// ─────────────────────────────────────────
+
+model Lead {
+  id           String     @id @default(cuid())
+  tenantId     String
+  campaignId   String
+  assignedToId String?
+  firstName    String
+  lastName     String
+  email        String?
+  phone        String?
+  company      String?
+  status       LeadStatus @default(NEW)
+  notes        String?
+  customData   Json?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaign     Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  assignedTo   User?         @relation("LeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  appointments Appointment[]
+  calls        Call[]
+
+  @@index([tenantId])
+  @@index([campaignId])
+  @@index([tenantId, status])
+  @@map("leads")
+}
+
+// ─────────────────────────────────────────
+// Appointment (Rendez-vous)
+// ─────────────────────────────────────────
+
+model Appointment {
+  id          String            @id @default(cuid())
+  tenantId    String
+  agentId     String
+  leadId      String?
+  campaignId  String?
+  clientId    String?
+  title       String
+  description String?
+  startAt     DateTime
+  endAt       DateTime
+  status      AppointmentStatus @default(SCHEDULED)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agent    User      @relation("AppointmentAgent", fields: [agentId], references: [id])
+  lead     Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  client   Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([agentId])
+  @@index([tenantId, startAt])
+  @@map("appointments")
+}
+
+// ─────────────────────────────────────────
+// Notification
+// ─────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  type      String
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@map("notifications")
+}
+
+// ─────────────────────────────────────────
+// Call (Historique appels)
+// ─────────────────────────────────────────
+
+model Call {
+  id            String        @id @default(cuid())
+  tenantId      String
+  agentId       String?
+  clientId      String?
+  leadId        String?
+  direction     CallDirection
+  status        CallStatus
+  callerNumber  String
+  calleeNumber  String
+  asteriskId    String?
+  duration      Int?
+  recordingUrl  String?
+  notes         String?
+  disposition   CallDisposition?
+  startedAt     DateTime      @default(now())
+  answeredAt    DateTime?
+  endedAt       DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agent     User?      @relation("AgentCalls", fields: [agentId], references: [id], onDelete: SetNull)
+  client    Client?    @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  lead      Lead?      @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  recording Recording?
+  callLog   CallLog?
+  sale      Sale?
+
+  @@index([tenantId])
+  @@index([tenantId, agentId])
+  @@index([tenantId, status])
+  @@index([asteriskId])
+  @@map("calls")
+}
+
+// ─────────────────────────────────────────
+// AgentSession (état temps réel agent)
+// ─────────────────────────────────────────
+
+model AgentSession {
+  id           String            @id @default(cuid())
+  tenantId     String
+  agentId      String            @unique
+  availability AgentAvailability @default(OFFLINE)
+  extension    String
+  currentCallId String?
+  pauseReason  String?
+  loginAt      DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agent  User   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, availability])
+  @@map("agent_sessions")
+}
+
+// ─────────────────────────────────────────
+// ContactList (Liste de contacts)
+// ─────────────────────────────────────────
+
+model ContactList {
+  id            String            @id @default(cuid())
+  tenantId      String
+  campaignId    String?
+  createdById   String
+  name          String
+  source        String?
+  description   String?
+  status        ContactListStatus @default(ACTIVE)
+  totalContacts Int               @default(0)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaign  Campaign?       @relation("CampaignContactLists", fields: [campaignId], references: [id], onDelete: SetNull)
+  createdBy User            @relation("ListCreator", fields: [createdById], references: [id])
+  contacts  Contact[]
+  imports   ImportHistory[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("contact_lists")
+}
+
+// ─────────────────────────────────────────
+// Contact
+// ─────────────────────────────────────────
+
+model Contact {
+  id            String        @id @default(cuid())
+  tenantId      String
+  listId        String
+  firstName     String?
+  lastName      String?
+  phone         String
+  email         String?
+  company       String?
+  status        ContactStatus @default(NEW)
+  customData    Json?
+  attemptCount  Int           @default(0)
+  lastCalledAt  DateTime?
+  nextCallAt    DateTime?
+  notes         String?
+  isBlacklisted Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  list        ContactList    @relation(fields: [listId], references: [id], onDelete: Cascade)
+  recycleLogs RecyclingLog[]
+
+  @@index([tenantId])
+  @@index([listId])
+  @@index([tenantId, status])
+  @@index([phone])
+  @@map("contacts")
+}
+
+// ─────────────────────────────────────────
+// ImportHistory
+// ─────────────────────────────────────────
+
+model ImportHistory {
+  id           String       @id @default(cuid())
+  tenantId     String
+  listId       String
+  createdById  String
+  fileName     String
+  status       ImportStatus @default(PENDING)
+  totalRows    Int          @default(0)
+  importedRows Int          @default(0)
+  skippedRows  Int          @default(0)
+  errorRows    Int          @default(0)
+  duplicates   Int          @default(0)
+  errors       Json?
+  columnMap    Json?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime     @default(now())
+
+  tenant    Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  list      ContactList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  createdBy User        @relation("ImportCreator", fields: [createdById], references: [id])
+
+  @@index([tenantId])
+  @@index([listId])
+  @@map("import_history")
+}
+
+// ─────────────────────────────────────────
+// Blacklist
+// ─────────────────────────────────────────
+
+model Blacklist {
+  id          String         @id @default(cuid())
+  tenantId    String
+  campaignId  String?
+  createdById String
+  name        String
+  scope       BlacklistScope @default(TENANT)
+  description String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaign  Campaign?        @relation("CampaignBlacklists", fields: [campaignId], references: [id], onDelete: SetNull)
+  createdBy User             @relation("BlacklistCreator", fields: [createdById], references: [id])
+  entries   BlacklistEntry[]
+
+  @@index([tenantId])
+  @@index([tenantId, scope])
+  @@map("blacklists")
+}
+
+// ─────────────────────────────────────────
+// BlacklistEntry
+// ─────────────────────────────────────────
+
+model BlacklistEntry {
+  id          String   @id @default(cuid())
+  blacklistId String
+  tenantId    String
+  phone       String
+  addedById   String?
+  reason      String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  blacklist Blacklist @relation(fields: [blacklistId], references: [id], onDelete: Cascade)
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  addedBy   User?     @relation("BlacklistEntryAdder", fields: [addedById], references: [id], onDelete: SetNull)
+
+  @@unique([blacklistId, phone])
+  @@index([tenantId, phone])
+  @@index([tenantId, isActive])
+  @@map("blacklist_entries")
+}
+
+// ─────────────────────────────────────────
+// RecyclingLog
+// ─────────────────────────────────────────
+
+model RecyclingLog {
+  id             String        @id @default(cuid())
+  tenantId       String
+  contactId      String
+  agentId        String?
+  previousStatus ContactStatus
+  newStatus      ContactStatus
+  reason         String?
+  scheduledAt    DateTime?
+  createdAt      DateTime      @default(now())
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  agent   User?   @relation("RecyclingAgent", fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([contactId])
+  @@map("recycling_logs")
+}
+
+// ─────────────────────────────────────────
+// Recording (Enregistrement appel)
+// ─────────────────────────────────────────
+
+model Recording {
+  id            String          @id @default(cuid())
+  tenantId      String
+  callId        String          @unique
+  agentId       String?
+  campaignId    String?
+  fileName      String
+  filePath      String
+  fileSize      Int?
+  format        RecordingFormat @default(WAV)
+  durationSec   Int             @default(0)
+  callerNumber  String
+  calleeNumber  String
+  asteriskId    String?
+  retentionDays Int             @default(60)
+  expiresAt     DateTime
+  deletedAt     DateTime?
+  createdAt     DateTime        @default(now())
+
+  tenant     Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  call       Call                 @relation(fields: [callId], references: [id], onDelete: Cascade)
+  agent      User?                @relation("AgentRecordings", fields: [agentId], references: [id], onDelete: SetNull)
+  campaign   Campaign?            @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  accessLogs RecordingAccessLog[]
+
+  @@index([tenantId])
+  @@index([tenantId, agentId])
+  @@index([tenantId, campaignId])
+  @@index([expiresAt])
+  @@index([callerNumber])
+  @@map("recordings")
+}
+
+// ─────────────────────────────────────────
+// CallLog (Journal appels qualifié)
+// ─────────────────────────────────────────
+
+model CallLog {
+  id            String            @id @default(cuid())
+  tenantId      String
+  callId        String            @unique
+  agentId       String?
+  campaignId    String?
+  callerNumber  String
+  calleeNumber  String
+  durationSec   Int               @default(0)
+  qualification CallQualification?
+  status        CallLogStatus     @default(PENDING)
+  notes         String?
+  agentNotes    String?
+  qualifiedAt   DateTime?
+  reviewedAt    DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  call     Call      @relation(fields: [callId], references: [id], onDelete: Cascade)
+  agent    User?     @relation("CallLogAgent", fields: [agentId], references: [id], onDelete: SetNull)
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, agentId])
+  @@index([tenantId, campaignId])
+  @@index([tenantId, qualification])
+  @@index([tenantId, status])
+  @@map("call_logs")
+}
+
+// ─────────────────────────────────────────
+// RecordingAccessLog (Audit accès)
+// ─────────────────────────────────────────
+
+model RecordingAccessLog {
+  id          String   @id @default(cuid())
+  tenantId    String
+  recordingId String
+  userId      String
+  action      String   // play | download | delete
+  ip          String?
+  createdAt   DateTime @default(now())
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  recording Recording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+  user      User      @relation("RecordingAccessor", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, recordingId])
+  @@index([userId])
+  @@map("recording_access_logs")
+}
+
+// ─────────────────────────────────────────
+// SaleStatus
+// ─────────────────────────────────────────
+
+enum SaleStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  REFUNDED
+}
+
+enum DialerMode {
+  MANUAL
+  PROGRESSIVE
+  PREDICTIVE
+  PREVIEW
+}
+
+// ─────────────────────────────────────────
+// Sale (Vente)
+// ─────────────────────────────────────────
+
+model Sale {
+  id            String            @id @default(cuid())
+  tenantId      String
+  agentId       String
+  clientId      String?
+  campaignId    String?
+  callId        String?           @unique
+  status        SaleStatus        @default(PENDING)
+  amount        Decimal           @db.Decimal(10, 2)
+  qualification CallQualification @default(SALE)
+  notes         String?
+  closedAt      DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agent    User      @relation("AgentSales", fields: [agentId], references: [id])
+  client   Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  call     Call?     @relation(fields: [callId], references: [id], onDelete: SetNull)
+  logs     SaleLog[]
+
+  @@index([tenantId])
+  @@index([tenantId, agentId])
+  @@index([tenantId, status])
+  @@index([tenantId, campaignId])
+  @@index([tenantId, createdAt])
+  @@map("sales")
+}
+
+// ─────────────────────────────────────────
+// SaleLog (Audit ventes)
+// ─────────────────────────────────────────
+
+model SaleLog {
+  id        String   @id @default(cuid())
+  saleId    String
+  userId    String
+  field     String
+  oldValue  String?
+  newValue  String?
+  createdAt DateTime @default(now())
+
+  sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  user User @relation("SaleLogAuditor", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([saleId])
+  @@map("sale_logs")
+}
+
+// ─────────────────────────────────────────
+// CampaignSettings (Config. dialer par campagne)
+// ─────────────────────────────────────────
+
+model CampaignSettings {
+  id                   String     @id @default(cuid())
+  campaignId           String     @unique
+  dialerMode           DialerMode @default(PROGRESSIVE)
+  dialerSpeed          Int        @default(1)
+  maxSimultaneousCalls Int        @default(1)
+  agentRatio           Float      @default(1.0)
+  maxAttempts          Int        @default(3)
+  retryDelayMin        Int        @default(60)
+  wrapUpTimeSec        Int        @default(30)
+  enableRecording      Boolean    @default(true)
+  enableDnc            Boolean    @default(true)
+  customQualifEnabled  Boolean    @default(false)
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@map("campaign_settings")
+}
+
+// ─────────────────────────────────────────
+// Qualification (Qualifications custom par campagne)
+// ─────────────────────────────────────────
+
+model Qualification {
+  id         String   @id @default(cuid())
+  tenantId   String
+  campaignId String?
+  label      String
+  code       String
+  color      String   @default("#6b7280")
+  isPositive Boolean  @default(false)
+  position   Int      @default(0)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([campaignId])
+  @@map("qualifications")
+}
+
+// ─────────────────────────────────────────
+// UserSession (Sessions connectées)
+// ─────────────────────────────────────────
+
+model UserSession {
+  id         String    @id @default(cuid())
+  userId     String
+  tenantId   String
+  ip         String?
+  userAgent  String?
+  token      String    @unique
+  expiresAt  DateTime
+  lastSeenAt DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@map("user_sessions")
+}
+
+// ─────────────────────────────────────────
+// ActivityLog (Journal d'activité)
+// ─────────────────────────────────────────
+
+model ActivityLog {
+  id         String   @id @default(cuid())
+  tenantId   String
+  userId     String
+  action     String
+  module     String
+  entityId   String?
+  entityType String?
+  meta       Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([tenantId, module])
+  @@index([tenantId, createdAt])
+  @@map("activity_logs")
+}
+
+// ─────────────────────────────────────────
+// KpiDaily (KPIs agrégés par jour)
+// ─────────────────────────────────────────
+
+model KpiDaily {
+  id                String   @id @default(cuid())
+  tenantId          String
+  agentId           String?
+  campaignId        String?
+  date              DateTime @db.Date
+  // Appels
+  totalCalls        Int      @default(0)
+  answeredCalls     Int      @default(0)
+  missedCalls       Int      @default(0)
+  totalDurationSec  Int      @default(0)
+  // RDV
+  appointmentsSet   Int      @default(0)
+  appointmentsValid Int      @default(0)
+  appointmentsCancelled Int  @default(0)
+  // Qualifications
+  sales             Int      @default(0)
+  hcCount           Int      @default(0)
+  callbackCount     Int      @default(0)
+  dncCount          Int      @default(0)
+  // CA
+  revenue           Decimal  @default(0) @db.Decimal(12, 2)
+  // KPIs calculés
+  ttr               Float    @default(0)   // Taux Transformation %
+  tpr               Float    @default(0)   // Taux Production (RDV/jour)
+  tauxHc            Float    @default(0)   // Taux HC %
+  tauxContact       Float    @default(0)   // Taux Contact %
+  tauxNonReponse    Float    @default(0)   // Taux Non-Réponse %
+  tauAnnulation     Float    @default(0)   // Taux Annulation %
+  avgCallDurationSec Float   @default(0)   // Durée moyenne appel
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, agentId, campaignId, date])
+  @@index([tenantId, date])
+  @@index([tenantId, agentId, date])
+  @@index([tenantId, campaignId, date])
+  @@map("kpi_daily")
+}
+
+// ─────────────────────────────────────────
+// KpiMonthly (KPIs agrégés par mois)
+// ─────────────────────────────────────────
+
+model KpiMonthly {
+  id                String   @id @default(cuid())
+  tenantId          String
+  agentId           String?
+  campaignId        String?
+  year              Int
+  month             Int      // 1-12
+  totalCalls        Int      @default(0)
+  answeredCalls     Int      @default(0)
+  appointmentsSet   Int      @default(0)
+  appointmentsValid Int      @default(0)
+  sales             Int      @default(0)
+  hcCount           Int      @default(0)
+  revenue           Decimal  @default(0) @db.Decimal(12, 2)
+  ttr               Float    @default(0)
+  tpr               Float    @default(0)
+  tauxHc            Float    @default(0)
+  avgCallDurationSec Float   @default(0)
+  workingDays       Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, agentId, campaignId, year, month])
+  @@index([tenantId, year, month])
+  @@map("kpi_monthly")
+}
+
+// ─────────────────────────────────────────
+// Report (Rapports sauvegardés)
+// ─────────────────────────────────────────
+
+model Report {
+  id          String   @id @default(cuid())
+  tenantId    String
+  createdById String
+  name        String
+  description String?
+  type        String   @default("CUSTOM")  // CUSTOM | PRESET
+  config      Json                          // filtres, colonnes, groupBy
+  lastRunAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User   @relation("ReportCreator", fields: [createdById], references: [id])
+
+  @@index([tenantId])
+  @@map("reports")
+}
+
+// ─────────────────────────────────────────
+// AlertRule (Alertes KPI)
+// ─────────────────────────────────────────
+
+model AlertRule {
+  id         String   @id @default(cuid())
+  tenantId   String
+  name       String
+  metric     String   // ttr | tauxHc | tauAnnulation | avgCallDuration
+  operator   String   // lt | gt | lte | gte
+  threshold  Float
+  agentId    String?
+  campaignId String?
+  isActive   Boolean  @default(true)
+  lastFiredAt DateTime?
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("alert_rules")
+}
+
+// ─────────────────────────────────────────
+// SaaS — Plans
+// ─────────────────────────────────────────
+
+model Plan {
+  id          String   @id @default(cuid())
+  code        PlanCode @unique
+  name        String
+  description String?
+  priceMonthly Float   @default(0)
+  priceYearly  Float   @default(0)
+  maxAgents   Int      @default(5)
+  maxCalls    Int      @default(1000)   // per month
+  maxStorage  Int      @default(5120)   // MB
+  modules     String[]                  // allowed module slugs
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+// ─────────────────────────────────────────
+// SaaS — Subscriptions
+// ─────────────────────────────────────────
+
+model Subscription {
+  id                 String             @id @default(cuid())
+  tenantId           String             @unique
+  planId             String
+  status             SubscriptionStatus @default(TRIAL)
+  currentPeriodStart DateTime           @default(now())
+  currentPeriodEnd   DateTime
+  cancelAtPeriodEnd  Boolean            @default(false)
+  stripeCustomerId   String?
+  stripeSubId        String?
+  stripeInvoiceId    String?
+  cancelledAt        DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan    Plan   @relation(fields: [planId], references: [id])
+  billingInvoices BillingInvoice[]
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("subscriptions")
+}
+
+// ─────────────────────────────────────────
+// SaaS — Billing Invoices
+// ─────────────────────────────────────────
+
+model BillingInvoice {
+  id             String   @id @default(cuid())
+  subscriptionId String
+  amount         Float
+  currency       String   @default("EUR")
+  status         String   @default("DRAFT") // DRAFT | PAID | FAILED
+  stripeInvoiceId String?
+  paidAt         DateTime?
+  periodStart    DateTime
+  periodEnd      DateTime
+  createdAt      DateTime @default(now())
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+  @@map("billing_invoices")
+}
+
+// ─────────────────────────────────────────
+// SaaS — Security Logs
+// ─────────────────────────────────────────
+
+model SecurityLog {
+  id        String            @id @default(cuid())
+  tenantId  String?
+  userId    String?
+  event     SecurityEventType
+  ip        String?
+  userAgent String?
+  details   Json?
+  createdAt DateTime          @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([event])
+  @@index([createdAt])
+  @@map("security_logs")
+}
+
+// ─────────────────────────────────────────
+// Chatbot — Messages IA
+// ─────────────────────────────────────────
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  role      String   // 'user' | 'assistant' | 'system'
+  content   String   @db.Text
+  metadata  Json?    // intent, actions exécutées, etc.
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, userId])
+  @@index([createdAt])
+  @@map("chat_messages")
+}
+
+// ─────────────────────────────────────────
+// Chatbot — Rappels agents
+// ─────────────────────────────────────────
+
+model Reminder {
+  id          String    @id @default(cuid())
+  tenantId    String
+  userId      String
+  clientId    String?
+  title       String
+  description String?
+  dueAt       DateTime
+  isDone      Boolean   @default(false)
+  doneAt      DateTime?
+  snoozedTo   DateTime?
+  notifiedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, userId])
+  @@index([dueAt])
+  @@index([isDone])
+  @@map("reminders")
+}
+
+// ─────────────────────────────────────────
+// Scripts dynamiques
+// ─────────────────────────────────────────
+
+enum ScriptFieldType {
+  TEXT
+  NUMBER
+  DATE
+  SELECT
+  RADIO
+  CHECKBOX
+}
+
+model Script {
+  id          String   @id @default(cuid())
+  tenantId    String
+  campaignId  String?
+  title       String
+  description String?
+  isActive    Boolean  @default(true)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaign  Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  createdBy User      @relation("ScriptCreator", fields: [createdById], references: [id])
+  fields    ScriptField[]
+  responses ScriptResponse[]
+
+  @@index([tenantId])
+  @@index([tenantId, campaignId])
+  @@map("scripts")
+}
+
+model ScriptField {
+  id           String          @id @default(cuid())
+  scriptId     String
+  label        String
+  type         ScriptFieldType
+  required     Boolean         @default(false)
+  order        Int             @default(0)
+  options      Json?           // string[] pour SELECT/RADIO/CHECKBOX
+  conditions   Json?           // [{ ifFieldId, ifValue, action: 'show'|'hide' }]
+  placeholder  String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  script Script @relation(fields: [scriptId], references: [id], onDelete: Cascade)
+  values ScriptResponseValue[]
+
+  @@index([scriptId])
+  @@index([scriptId, order])
+  @@map("script_fields")
+}
+
+model ScriptResponse {
+  id         String   @id @default(cuid())
+  tenantId   String
+  scriptId   String
+  callId     String?
+  contactId  String?
+  campaignId String?
+  agentId    String
+  isComplete Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  script   Script   @relation(fields: [scriptId], references: [id], onDelete: Cascade)
+  agent    User     @relation("AgentScriptResponses", fields: [agentId], references: [id])
+  values   ScriptResponseValue[]
+
+  @@index([tenantId])
+  @@index([scriptId])
+  @@index([callId])
+  @@index([agentId])
+  @@map("script_responses")
+}
+
+model ScriptResponseValue {
+  id         String   @id @default(cuid())
+  responseId String
+  fieldId    String
+  value      Json     // string | string[] | number | null
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  response ScriptResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  field    ScriptField    @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@unique([responseId, fieldId])
+  @@index([responseId])
+  @@index([fieldId])
+  @@map("script_response_values")
+}
