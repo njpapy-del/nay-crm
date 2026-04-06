@@ -35,9 +35,9 @@ export function paginate<T>(data: T[], total: number, page: number, limit: numbe
   return { data, total, page, limit, totalPages, hasNext: page < totalPages, hasPrev: page > 1 };
 }
 
-export function paginationParams(dto: PaginationDto) {
-  const page = dto.page ?? 1;
-  const limit = dto.limit ?? 20;
+export function paginationParams(dto: any) {
+  const page = Math.max(1, parseInt(String(dto?.page ?? 1), 10) || 1);
+  const limit = Math.min(200, Math.max(1, parseInt(String(dto?.limit ?? 20), 10) || 20));
   return { skip: (page - 1) * limit, take: limit, page, limit };
 }
 

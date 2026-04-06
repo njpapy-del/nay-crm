@@ -17,7 +17,8 @@ export class QuotesService {
   constructor(private prisma: PrismaService, private pdfService: PdfService) {}
 
   async findAll(tenantId: string, query: PaginationDto) {
-    const { page = 1, limit = 20 } = query;
+    const page = Math.max(1, parseInt(String(query.page ?? 1), 10) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(String(query.limit ?? 20), 10) || 20));
     const skip = (page - 1) * limit;
     const where = { tenantId };
 

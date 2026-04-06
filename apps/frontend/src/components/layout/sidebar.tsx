@@ -7,6 +7,7 @@ import {
   FileText, Receipt, Megaphone, CalendarDays, Headphones, MonitorPlay,
   List, ShieldOff, History, Mic, PhoneCall, TrendingUp, CalendarRange,
   LineChart, Target, Building2, CreditCard, UserCog, ScrollText,
+  Activity, CalendarCheck, BrainCircuit,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useAuthStore } from '@/stores/auth.store';
@@ -32,13 +33,16 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Agenda',       href: '/agenda',     icon: CalendarRange, roles: ['ADMIN', 'MANAGER', 'AGENT'] },
   { label: 'Ventes',       href: '/sales',      icon: TrendingUp,    roles: ['ADMIN', 'MANAGER', 'AGENT'] },
   { label: 'Espace Agent',  href: '/agent',      icon: Headphones,   roles: ['AGENT', 'MANAGER', 'ADMIN'] },
-  { label: 'Supervision',   href: '/supervisor', icon: MonitorPlay,  roles: ['ADMIN', 'MANAGER'] },
+  { label: 'Supervision',       href: '/supervisor',    icon: MonitorPlay,   roles: ['ADMIN', 'MANAGER'] },
+  { label: 'Suivi agents',      href: '/agent-monitor', icon: Activity,      roles: ['ADMIN', 'MANAGER'] },
+  { label: 'Planning',          href: '/planning',      icon: CalendarCheck, roles: ['ADMIN', 'MANAGER', 'AGENT'] },
   { label: 'Appels',        href: '/calls',      icon: Phone,        roles: ['ADMIN', 'MANAGER', 'AGENT'] },
   { label: 'Listes',         href: '/lists',       icon: List,      roles: ['ADMIN', 'MANAGER'] },
   { label: 'Blacklist',      href: '/blacklist',   icon: ShieldOff, roles: ['ADMIN', 'MANAGER'] },
   { label: 'Imports',        href: '/imports',     icon: History,   roles: ['ADMIN', 'MANAGER'] },
   { label: 'Enregistrements',href: '/recordings',  icon: Mic,       roles: ['ADMIN', 'MANAGER'] },
   { label: 'Journal appels', href: '/call-logs',   icon: PhoneCall, roles: ['ADMIN', 'MANAGER', 'AGENT'] },
+  { label: 'IA Analytique ✦', href: '/ai-analytics', icon: BrainCircuit, roles: ['ADMIN', 'MANAGER', 'QUALITY'] },
   { label: 'KPIs',          href: '/kpi',        icon: Target,          roles: ['ADMIN', 'MANAGER'] },
   { label: 'Rapports',     href: '/reports',   icon: BarChart2,       roles: ['ADMIN', 'MANAGER'] },
   { label: 'Analytiques',  href: '/analytics', icon: LineChart,       roles: ['ADMIN', 'MANAGER'] },

@@ -3,36 +3,37 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   MessageCircle, X, Send, Loader2, Bell, BellOff,
-  CheckCircle2, Clock, Trash2, ChevronDown,
+  CheckCircle2, Clock, ChevronDown, Trash2,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { clsx } from 'clsx';
 import { useAuthStore } from '@/stores/auth.store';
 import { io, Socket } from 'socket.io-client';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ChatMsg {
-  id?: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
+  id?:        string;
+  role:       'user' | 'assistant' | 'system';
+  content:    string;
   createdAt?: string;
+  streaming?: boolean; // bulle en cours de frappe
 }
 
 interface Reminder {
-  id: string;
-  title: string;
+  id:           string;
+  title:        string;
   description?: string;
-  dueAt: string;
-  isDone: boolean;
-  client?: { firstName: string; lastName: string; phone: string };
+  dueAt:        string;
+  isDone:       boolean;
+  client?:      { firstName: string; lastName: string; phone: string };
 }
 
 interface ReminderNotif {
-  type: 'reminder';
+  type:       'reminder';
   reminderId: string;
-  message: string;
-  reminder: Reminder;
+  message:    string;
+  reminder:   Reminder;
 }
 
 const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:3001';
@@ -41,33 +42,79 @@ const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:3001';
 
 export function ChatWidget() {
   const { user } = useAuthStore();
-  const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<'chat' | 'reminders'>('chat');
+  const [open,     setOpen]     = useState(false);
+  const [tab,      setTab]      = useState<'chat' | 'reminders'>('chat');
   const [messages, setMessages] = useState<ChatMsg[]>([]);
-  const [reminders, setReminders] = useState<Reminder[]>([]);
-  const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
-  const [unread, setUnread] = useState(0);
-  const [alerts, setAlerts] = useState<string[]>([]);
-  const [notifs, setNotifs] = useState<ReminderNotif[]>([]);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const socketRef = useRef<Socket | null>(null);
+  const [reminders,setReminders]= useState<Reminder[]>([]);
+  const [input,    setInput]    = useState('');
+  const [sending,      setSending]      = useState(false);
+  const [unread,       setUnread]       = useState(0);
+  const [alerts,       setAlerts]       = useState<string[]>([]);
+  const [notifs,       setNotifs]       = useState<ReminderNotif[]>([]);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bottomRef  = useRef<HTMLDivElement>(null);
+  const socketRef  = useRef<Socket | null>(null);
+  const streamIdRef = useRef<string | null>(null); // id de la bulle en streaming
 
-  // ── WebSocket pour rappels temps réel ──────────────────────────────────
+  // ── WebSocket : connexion + handlers ───────────────────────────────────────
   useEffect(() => {
-    if (!user?.sub) return;
+    if (!user?.id) return;
+
     const sock = io(`${BACKEND}/chatbot`, { transports: ['websocket'] });
     socketRef.current = sock;
-    sock.on('connect', () => sock.emit('join', { userId: user.sub }));
+
+    sock.on('connect', () => sock.emit('join', { userId: user.id }));
+
+    // ── Rappels temps réel ──────────────────────────────────────────────────
     sock.on('reminder:due', (notif: ReminderNotif) => {
       setNotifs((prev) => [notif, ...prev.slice(0, 4)]);
       setUnread((n) => n + 1);
       setMessages((prev) => [...prev, { role: 'system', content: notif.message }]);
     });
-    return () => { sock.disconnect(); };
-  }, [user?.sub]);
 
-  // ── Charger historique + rappels + alertes ─────────────────────────────
+    // ── Streaming : fragment de token reçu ──────────────────────────────────
+    sock.on('chat:token', ({ token }: { token: string }) => {
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        // Si la dernière bulle est en streaming → on y ajoute le token
+        if (last?.streaming) {
+          return [
+            ...prev.slice(0, -1),
+            { ...last, content: last.content + token },
+          ];
+        }
+        // Sinon on crée la bulle
+        const id = `stream-${Date.now()}`;
+        streamIdRef.current = id;
+        return [...prev, { id, role: 'assistant', content: token, streaming: true }];
+      });
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    });
+
+    // ── Streaming terminé ────────────────────────────────────────────────────
+    sock.on('chat:done', () => {
+      setMessages((prev) =>
+        prev.map((m) => m.streaming ? { ...m, streaming: false } : m),
+      );
+      streamIdRef.current = null;
+      setSending(false);
+    });
+
+    // ── Erreur ───────────────────────────────────────────────────────────────
+    sock.on('chat:error', ({ message }: { message: string }) => {
+      setMessages((prev) => {
+        // Supprimer la bulle vide éventuelle
+        const filtered = prev.filter((m) => !m.streaming);
+        return [...filtered, { role: 'assistant', content: `❌ ${message}` }];
+      });
+      setSending(false);
+    });
+
+    return () => { sock.disconnect(); };
+  }, [user?.id]);
+
+  // ── Charger historique + rappels + alertes ─────────────────────────────────
   const loadData = useCallback(async () => {
     try {
       const [histRes, remRes, alertRes] = await Promise.all([
@@ -87,23 +134,44 @@ export function ChatWidget() {
     if (open) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, open]);
 
-  // ── Envoyer message ────────────────────────────────────────────────────
+  // ── Envoyer message via WebSocket (streaming) ─────────────────────────────
   async function send() {
-    if (!input.trim() || sending) return;
+    const sock = socketRef.current;
+    if (!input.trim() || sending || !sock?.connected) return;
+
     const text = input.trim();
     setInput('');
-    setMessages((prev) => [...prev, { role: 'user', content: text }]);
     setSending(true);
-    try {
-      const res = await api.post('/chatbot/message', { message: text });
-      const reply = res.data.data?.reply ?? res.data.reply ?? '';
-      setMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
-    } catch {
-      setMessages((prev) => [...prev, { role: 'assistant', content: '❌ Erreur de connexion.' }]);
-    } finally { setSending(false); }
+
+    // Ajouter le message utilisateur immédiatement
+    setMessages((prev) => [...prev, { role: 'user', content: text }]);
+
+    // Émettre via WebSocket — la réponse arrivera via chat:token + chat:done
+    sock.emit('chat:message', {
+      message:   text,
+      userId:    user?.id      ?? '',
+      tenantId:  user?.tenantId ?? '',
+      firstName: user?.firstName ?? 'Agent',
+      role:      user?.role     ?? 'AGENT',
+    });
   }
 
-  // ── Actions rappels ────────────────────────────────────────────────────
+  // ── Effacer historique (2 clics pour confirmer) ───────────────────────────
+  function handleClearClick() {
+    if (!confirmClear) {
+      setConfirmClear(true);
+      // Annuler automatiquement après 3s sans confirmation
+      confirmTimerRef.current = setTimeout(() => setConfirmClear(false), 3_000);
+      return;
+    }
+    // Deuxième clic = confirmation
+    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+    setConfirmClear(false);
+    api.delete('/chatbot/history').catch(() => null);
+    setMessages([]);
+  }
+
+  // ── Actions rappels ────────────────────────────────────────────────────────
   async function markDone(id: string) {
     await api.patch(`/chatbot/reminders/${id}/done`);
     setReminders((prev) => prev.filter((r) => r.id !== id));
@@ -114,7 +182,7 @@ export function ChatWidget() {
     setReminders((prev) => prev.filter((r) => r.id !== id));
   }
 
-  // ── Rendu ──────────────────────────────────────────────────────────────
+  // ── Rendu ──────────────────────────────────────────────────────────────────
   return (
     <>
       {/* Notifications flottantes */}
@@ -154,8 +222,24 @@ export function ChatWidget() {
             </div>
             <div className="flex-1">
               <p className="font-semibold text-sm">Assistant LNAYCRM</p>
-              <p className="text-xs text-white/70">{alerts.length > 0 ? `${alerts.length} alerte${alerts.length > 1 ? 's' : ''}` : 'En ligne'}</p>
+              <p className="text-xs text-white/70">
+                {sending ? 'En train d\'écrire…' : alerts.length > 0 ? `${alerts.length} alerte${alerts.length > 1 ? 's' : ''}` : 'En ligne'}
+              </p>
             </div>
+            {tab === 'chat' && (
+              <button
+                onClick={handleClearClick}
+                title={confirmClear ? 'Confirmer la suppression ?' : 'Effacer la conversation'}
+                className={clsx(
+                  'p-1.5 rounded-lg transition-colors text-sm',
+                  confirmClear
+                    ? 'bg-red-500 text-white animate-pulse'
+                    : 'text-white/70 hover:text-white hover:bg-white/10',
+                )}
+              >
+                {confirmClear ? <span className="text-xs font-semibold px-1">Confirmer ?</span> : <Trash2 size={15} />}
+              </button>
+            )}
             <button onClick={() => setOpen(false)} className="text-white/70 hover:text-white">
               <ChevronDown size={18} />
             </button>
@@ -173,7 +257,7 @@ export function ChatWidget() {
           {/* Tabs */}
           <div className="flex border-b border-gray-100">
             {[
-              { key: 'chat', label: 'Chat' },
+              { key: 'chat',      label: 'Chat' },
               { key: 'reminders', label: `Rappels${reminders.length ? ` (${reminders.length})` : ''}` },
             ].map((t) => (
               <button key={t.key} onClick={() => setTab(t.key as any)}
@@ -194,7 +278,7 @@ export function ChatWidget() {
                     Bonjour ! Comment puis-je vous aider ?
                     <div className="flex flex-wrap gap-1.5 justify-center mt-3">
                       {['Mes rappels', 'Alertes qualité', 'Résumé du jour'].map((s) => (
-                        <button key={s} onClick={() => { setInput(s); }}
+                        <button key={s} onClick={() => setInput(s)}
                           className="px-2.5 py-1 bg-gray-100 text-gray-600 rounded-full text-xs hover:bg-gray-200 transition-colors">
                           {s}
                         </button>
@@ -202,8 +286,9 @@ export function ChatWidget() {
                     </div>
                   </div>
                 )}
+
                 {messages.map((m, i) => (
-                  <div key={i} className={clsx('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}>
+                  <div key={m.id ?? i} className={clsx('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}>
                     {m.role === 'system' ? (
                       <div className="w-full bg-orange-50 border border-orange-100 rounded-lg px-3 py-2 text-xs text-orange-800">
                         {m.content}
@@ -216,30 +301,41 @@ export function ChatWidget() {
                           : 'bg-gray-100 text-gray-800 rounded-bl-sm',
                       )}>
                         {m.content}
+                        {/* Curseur clignotant pendant le streaming */}
+                        {m.streaming && (
+                          <span className="inline-block w-0.5 h-3.5 bg-gray-500 ml-0.5 animate-pulse align-middle" />
+                        )}
                       </div>
                     )}
                   </div>
                 ))}
-                {sending && (
+
+                {/* Indicateur "en train d'écrire" si envoyé mais aucun token encore reçu */}
+                {sending && !messages.some((m) => m.streaming) && (
                   <div className="flex justify-start">
-                    <div className="bg-gray-100 rounded-xl rounded-bl-sm px-3 py-2">
-                      <Loader2 size={14} className="animate-spin text-gray-400" />
+                    <div className="bg-gray-100 rounded-xl rounded-bl-sm px-3 py-2 flex gap-1">
+                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:0ms]" />
+                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:150ms]" />
+                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:300ms]" />
                     </div>
                   </div>
                 )}
+
                 <div ref={bottomRef} />
               </div>
+
               <div className="px-3 pb-3 pt-1 flex gap-2">
                 <input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
                   placeholder="Posez votre question..."
-                  className="flex-1 text-sm px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:border-primary-400 bg-gray-50"
+                  disabled={sending}
+                  className="flex-1 text-sm px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:border-primary-400 bg-gray-50 disabled:opacity-60"
                 />
                 <button onClick={send} disabled={!input.trim() || sending}
                   className="w-9 h-9 bg-primary-600 text-white rounded-xl flex items-center justify-center disabled:opacity-40 hover:bg-primary-700 transition-colors shrink-0">
-                  <Send size={14} />
+                  {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
                 </button>
               </div>
             </>
@@ -268,13 +364,11 @@ export function ChatWidget() {
                         </p>
                       </div>
                       <div className="flex gap-1 shrink-0">
-                        <button onClick={() => snooze(r.id)}
-                          title="Reporter 30 min"
+                        <button onClick={() => snooze(r.id)} title="Reporter 30 min"
                           className="p-1.5 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-lg transition-colors">
                           <Clock size={13} />
                         </button>
-                        <button onClick={() => markDone(r.id)}
-                          title="Marquer fait"
+                        <button onClick={() => markDone(r.id)} title="Marquer fait"
                           className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors">
                           <CheckCircle2 size={13} />
                         </button>

@@ -6,6 +6,9 @@ import { useAuthStore } from '@/stores/auth.store';
 import { useCallMonitor } from '@/hooks/use-call-monitor';
 import { CallPanel, WrapUpPanel } from '@/components/telephony/call-panel';
 import { Softphone } from '@/components/telephony/softphone';
+import { PostCallModal } from '@/components/calls/PostCallModal';
+import { usePostCall } from '@/hooks/usePostCall';
+import { StatusPanel } from '@/components/agent-status/StatusPanel';
 import { clsx } from 'clsx';
 import { api } from '@/lib/api';
 
@@ -29,6 +32,9 @@ export default function AgentPage() {
   const [sipConfig, setSipConfig] = useState<any>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [pauseReason, setPauseReason] = useState('');
+  const [postCallData, setPostCallData] = useState<{ callId: string; callLogId?: string } | null>(null);
+
+  const { triggerPostCall } = usePostCall((payload) => setPostCallData(payload));
 
   const {
     connected, agentState, incomingCall, activeCall, wrapUp,
@@ -71,8 +77,11 @@ export default function AgentPage() {
 
   if (!logged) {
     return (
-      <div className="max-w-sm mx-auto mt-16 space-y-4">
-        <div className="text-center">
+      <div className="max-w-sm mx-auto mt-8 space-y-4">
+        {/* Status panel always accessible */}
+        <StatusPanel />
+
+        <div className="text-center mt-4">
           <h1 className="text-2xl font-bold text-gray-900">Connexion Agent</h1>
           <p className="text-gray-500 text-sm mt-1">Entrez votre extension SIP pour commencer</p>
         </div>
@@ -184,8 +193,31 @@ export default function AgentPage() {
         </div>
       )}
 
+      {/* Statut agent */}
+      <StatusPanel />
+
       {/* Softphone WebRTC */}
       <Softphone config={sipConfig} />
+
+      {/* Simulation button (dev only) */}
+      {process.env.NODE_ENV === 'development' && (
+        <button
+          onClick={() => triggerPostCall({ callId: 'test-' + Date.now() })}
+          className="fixed bottom-4 right-4 z-40 flex items-center gap-2 px-3 py-2 bg-gray-800 text-white text-xs rounded-lg opacity-60 hover:opacity-100 transition-opacity"
+        >
+          Simuler fin d'appel
+        </button>
+      )}
+
+      {/* Post-call qualification modal */}
+      {postCallData && (
+        <PostCallModal
+          callId={postCallData.callId}
+          callLogId={postCallData.callLogId}
+          onClose={() => setPostCallData(null)}
+          onNextCall={() => setPostCallData(null)}
+        />
+      )}
     </div>
   );
 }

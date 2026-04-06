@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft, Upload, UserPlus, Trash2, UserMinus, Settings2,
-  Tag, Plus, Pencil, Check, X, Loader2,
+  Tag, Plus, Pencil, Check, X, Loader2, GitMerge, Filter, RefreshCw,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -59,11 +59,17 @@ export default function CampaignDetailPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [allAgents, setAllAgents] = useState<Agent[]>([]);
   const [qualifications, setQualifications] = useState<Qualification[]>([]);
-  const [showImport, setShowImport] = useState(false);
-  const [showAgentPanel, setShowAgentPanel] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [savingSettings, setSavingSettings] = useState(false);
-  const [settings, setSettings] = useState<Partial<CampaignSettings>>({});
+  const [showImport,    setShowImport]    = useState(false);
+  const [showAgentPanel,setShowAgentPanel]= useState(false);
+  const [loading,       setLoading]       = useState(true);
+  const [savingSettings,setSavingSettings]= useState(false);
+  const [settings,      setSettings]      = useState<Partial<CampaignSettings>>({});
+  const [leadFilter,    setLeadFilter]    = useState('');
+  const [deduping,      setDeduping]      = useState(false);
+  const [dedupeResult,  setDedupeResult]  = useState<{ removed: number } | null>(null);
+  const [recycling,     setRecycling]     = useState(false);
+  const [recycleResult, setRecycleResult] = useState<{ recycled: number } | null>(null);
+  const [recycleMode,   setRecycleMode]   = useState<'not_reached' | 'failed_calls' | 'all'>('all');
 
   const fetchData = useCallback(async () => {
     const [campRes, leadsRes, agentsRes, qualifRes] = await Promise.all([
@@ -72,11 +78,11 @@ export default function CampaignDetailPage() {
       api.get('/users/agents/list'),
       api.get(`/campaigns/${id}/qualifications`),
     ]);
-    const camp = campRes.data;
+    const camp = campRes.data?.data ?? campRes.data;
     setCampaign(camp);
-    setLeads(leadsRes.data.data);
-    setAllAgents(agentsRes.data);
-    setQualifications(qualifRes.data);
+    setLeads(leadsRes.data?.data?.data ?? leadsRes.data?.data ?? []);
+    setAllAgents(agentsRes.data?.data ?? agentsRes.data ?? []);
+    setQualifications(qualifRes.data?.data ?? qualifRes.data ?? []);
     setSettings(camp.settings ?? {
       dialerMode: 'PROGRESSIVE', dialerSpeed: 1, maxSimultaneousCalls: 1,
       agentRatio: 1.0, maxAttempts: 3, retryDelayMin: 60, wrapUpTimeSec: 30,
@@ -106,6 +112,29 @@ export default function CampaignDetailPage() {
     if (!confirm('Supprimer ce lead ?')) return;
     await api.delete(`/leads/${leadId}`);
     setLeads((prev) => prev.filter((l) => l.id !== leadId));
+  };
+
+  const deduplicate = async () => {
+    if (!confirm('Supprimer les leads en double (même téléphone ou même email) ?')) return;
+    setDeduping(true);
+    setDedupeResult(null);
+    try {
+      const res = await api.post(`/campaigns/${id}/deduplicate`);
+      const result = res.data?.data ?? res.data;
+      setDedupeResult(result);
+      if (result.removed > 0) fetchData();
+    } finally { setDeduping(false); }
+  };
+
+  const recycle = async () => {
+    setRecycling(true);
+    setRecycleResult(null);
+    try {
+      const res = await api.post(`/campaigns/${id}/recycle`, { mode: recycleMode });
+      const result = res.data?.data ?? res.data;
+      setRecycleResult(result);
+      if (result.recycled > 0) fetchData();
+    } finally { setRecycling(false); }
   };
 
   const saveSettings = async () => {
@@ -181,10 +210,87 @@ export default function CampaignDetailPage() {
       {/* Tab: Leads */}
       {tab === 'leads' && (
         <div className="card overflow-hidden">
-          <div className="p-4 border-b border-gray-100">
-            <h3 className="font-semibold text-gray-900">Leads ({leads.length})</h3>
+          <div className="p-4 border-b border-gray-100 flex flex-wrap items-center gap-3">
+            <h3 className="font-semibold text-gray-900 shrink-0">
+              Leads ({leadFilter ? leads.filter(l => l.status === leadFilter).length : leads.length})
+            </h3>
+
+            {/* Filtre statut */}
+            <div className="flex items-center gap-1.5">
+              <Filter size={13} className="text-gray-400" />
+              <select
+                value={leadFilter}
+                onChange={(e) => setLeadFilter(e.target.value)}
+                className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-300 bg-white"
+              >
+                <option value="">Tous les statuts</option>
+                {Object.entries(LEAD_STATUS_LABELS).map(([v, l]) => (
+                  <option key={v} value={v}>{l}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Dédoublonnage */}
+            <button
+              onClick={deduplicate}
+              disabled={deduping || leads.length === 0}
+              className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-orange-200 text-orange-600 rounded-lg hover:bg-orange-50 disabled:opacity-40 transition-colors"
+            >
+              {deduping
+                ? <Loader2 size={13} className="animate-spin" />
+                : <GitMerge size={13} />}
+              Dédoublonner
+            </button>
+
+            {/* Résultat dédoublonnage */}
+            {dedupeResult && (
+              <span className={clsx(
+                'text-xs font-medium px-2 py-1 rounded-full',
+                dedupeResult.removed > 0
+                  ? 'bg-orange-100 text-orange-700'
+                  : 'bg-green-100 text-green-700',
+              )}>
+                {dedupeResult.removed > 0
+                  ? `${dedupeResult.removed} doublon${dedupeResult.removed > 1 ? 's' : ''} supprimé${dedupeResult.removed > 1 ? 's' : ''}`
+                  : 'Aucun doublon détecté'}
+              </span>
+            )}
+
+            {/* Recyclage */}
+            <div className="flex items-center gap-1.5 border-l border-gray-200 pl-3">
+              <select
+                value={recycleMode}
+                onChange={(e) => setRecycleMode(e.target.value as typeof recycleMode)}
+                className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-300 bg-white"
+              >
+                <option value="not_reached">Non joints</option>
+                <option value="failed_calls">Appels échoués</option>
+                <option value="all">Tous (non joints + échoués)</option>
+              </select>
+              <button
+                onClick={recycle}
+                disabled={recycling || leads.length === 0}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-blue-200 text-blue-600 rounded-lg hover:bg-blue-50 disabled:opacity-40 transition-colors"
+              >
+                {recycling
+                  ? <Loader2 size={13} className="animate-spin" />
+                  : <RefreshCw size={13} />}
+                Recycler
+              </button>
+              {recycleResult && (
+                <span className={clsx(
+                  'text-xs font-medium px-2 py-1 rounded-full',
+                  recycleResult.recycled > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600',
+                )}>
+                  {recycleResult.recycled > 0
+                    ? `${recycleResult.recycled} lead${recycleResult.recycled > 1 ? 's' : ''} recyclé${recycleResult.recycled > 1 ? 's' : ''}`
+                    : 'Aucun lead à recycler'}
+                </span>
+              )}
+            </div>
           </div>
-          {leads.length === 0 ? (
+
+          {leads.filter((l) => !leadFilter || l.status === leadFilter).length === 0 ? (
             <div className="p-8 text-center text-gray-400">
               Aucun lead — importez un fichier CSV
             </div>
@@ -199,7 +305,7 @@ export default function CampaignDetailPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {leads.map((lead) => (
+                  {leads.filter((l) => !leadFilter || l.status === leadFilter).map((lead) => (
                     <tr key={lead.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 font-medium text-gray-900">{lead.firstName} {lead.lastName}</td>
                       <td className="px-4 py-3 text-gray-500">{lead.email ?? '—'}</td>

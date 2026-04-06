@@ -1,10 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Phone, PhoneIncoming, PhoneOutgoing, BarChart2, Clock, X, ScrollText } from 'lucide-react';
+import { Phone, PhoneIncoming, PhoneOutgoing, BarChart2, Clock, X, ScrollText, ClipboardCheck } from 'lucide-react';
 import { api } from '@/lib/api';
 import { clsx } from 'clsx';
 import { ScriptPlayer } from '@/components/scripts/ScriptPlayer';
+import { PostCallModal } from '@/components/calls/PostCallModal';
 
 interface Call {
   id: string;
@@ -67,6 +68,7 @@ export default function CallsPage() {
   const [selectedCall, setSelectedCall] = useState<Call | null>(null);
   const [scripts, setScripts] = useState<Script[]>([]);
   const [activeScript, setActiveScript] = useState<Script | null>(null);
+  const [qualifyCallId, setQualifyCallId] = useState<string | null>(null);
 
   async function openCallDrawer(call: Call) {
     setSelectedCall(call);
@@ -148,7 +150,7 @@ export default function CallsPage() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  {['Direction', 'De', 'Vers', 'Agent', 'Client', 'Statut', 'Durée', 'Date'].map((h) => (
+                  {['Direction', 'De', 'Vers', 'Agent', 'Client', 'Statut', 'Durée', 'Date', ''].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
@@ -157,17 +159,16 @@ export default function CallsPage() {
                 {calls.map((c) => {
                   const Icon = DIRECTION_ICON[c.direction] ?? Phone;
                   return (
-                    <tr key={c.id} onClick={() => openCallDrawer(c)}
-                      className="hover:bg-gray-50 transition-colors cursor-pointer">
-                      <td className="px-4 py-3">
+                    <tr key={c.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-3 cursor-pointer" onClick={() => openCallDrawer(c)}>
                         <Icon size={16} className={DIRECTION_COLOR[c.direction] ?? 'text-gray-400'} />
                       </td>
-                      <td className="px-4 py-3 font-mono text-xs text-gray-600">{c.callerNumber}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-gray-600">{c.calleeNumber}</td>
-                      <td className="px-4 py-3 text-gray-700">
+                      <td className="px-4 py-3 font-mono text-xs text-gray-600 cursor-pointer" onClick={() => openCallDrawer(c)}>{c.callerNumber}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-gray-600 cursor-pointer" onClick={() => openCallDrawer(c)}>{c.calleeNumber}</td>
+                      <td className="px-4 py-3 text-gray-700 cursor-pointer" onClick={() => openCallDrawer(c)}>
                         {c.agent ? `${c.agent.firstName} ${c.agent.lastName}` : '—'}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 cursor-pointer" onClick={() => openCallDrawer(c)}>
                         {c.client ? (
                           <div>
                             <div className="text-gray-900 font-medium">{c.client.firstName} {c.client.lastName}</div>
@@ -175,12 +176,20 @@ export default function CallsPage() {
                           </div>
                         ) : '—'}
                       </td>
-                      <td className={clsx('px-4 py-3 text-xs font-medium', STATUS_COLOR[c.status] ?? 'text-gray-500')}>
+                      <td className={clsx('px-4 py-3 text-xs font-medium cursor-pointer', STATUS_COLOR[c.status] ?? 'text-gray-500')} onClick={() => openCallDrawer(c)}>
                         {STATUS_LABEL[c.status] ?? c.status}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">{fmtDuration(c.duration)}</td>
-                      <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">
+                      <td className="px-4 py-3 text-gray-500 text-xs cursor-pointer" onClick={() => openCallDrawer(c)}>{fmtDuration(c.duration)}</td>
+                      <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap cursor-pointer" onClick={() => openCallDrawer(c)}>
                         {new Date(c.startedAt).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => setQualifyCallId(c.id)}
+                          className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-primary-700 bg-primary-50 hover:bg-primary-100 rounded-lg transition-colors whitespace-nowrap"
+                        >
+                          <ClipboardCheck size={13} /> Qualifier
+                        </button>
                       </td>
                     </tr>
                   );
@@ -190,6 +199,14 @@ export default function CallsPage() {
           </div>
         )}
       </div>
+
+      {/* Post-call qualification modal */}
+      {qualifyCallId && (
+        <PostCallModal
+          callId={qualifyCallId}
+          onClose={() => setQualifyCallId(null)}
+        />
+      )}
 
       {/* Script drawer */}
       {selectedCall && (

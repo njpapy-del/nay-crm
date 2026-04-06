@@ -1,6 +1,13 @@
 version: '3.9'
 
+# ============================================================
+# LNAYCRM — Docker Compose
+# Postgres (optionnel si Supabase cloud) + MinIO + Backend + Frontend
+# ============================================================
+
 services:
+
+  # ── PostgreSQL local (désactiver si Supabase cloud) ────────
   postgres:
     image: postgres:16-alpine
     container_name: lnaycrm_postgres
@@ -14,11 +21,12 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U lnaycrm']
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-lnaycrm}']
       interval: 10s
       timeout: 5s
       retries: 5
 
+  # ── Redis ──────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: lnaycrm_redis
@@ -33,6 +41,83 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── MinIO (S3-compatible Object Storage) ──────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: lnaycrm_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-lnaycrm_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio_secret_2024}
+    ports:
+      - '9000:9000'   # API S3
+      - '9001:9001'   # Console web
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  # ── Création automatique des buckets MinIO ─────────────────
+  minio-init:
+    image: minio/mc:latest
+    container_name: lnaycrm_minio_init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD};
+        mc mb --ignore-existing local/recordings;
+        mc mb --ignore-existing local/exports;
+        mc mb --ignore-existing local/files;
+        mc anonymous set download local/files;
+        echo 'Buckets created.';
+      "
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-lnaycrm_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio_secret_2024}
+    restart: on-failure
+
+  # ── Ollama (LLM local — IA analytique) ───────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: lnaycrm_ollama
+    restart: unless-stopped
+    ports:
+      - '11434:11434'
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      OLLAMA_KEEP_ALIVE: '24h'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -sf http://localhost:11434/api/tags || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── Pull du modèle Ollama au démarrage ────────────────────
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: lnaycrm_ollama_init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        OLLAMA_HOST=http://ollama:11434 ollama pull ${OLLAMA_AI_MODEL:-llama3};
+        echo 'Model pulled.';
+      "
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    restart: on-failure
+
+  # ── Backend NestJS ─────────────────────────────────────────
   backend:
     build:
       context: ./apps/backend
@@ -40,19 +125,40 @@ services:
     container_name: lnaycrm_backend
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      # MinIO / S3
+      STORAGE_ENDPOINT: http://minio:9000
+      STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-lnaycrm_minio}
+      STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minio_secret_2024}
+      STORAGE_REGION: us-east-1
+      STORAGE_BUCKET_RECORDINGS: recordings
+      STORAGE_BUCKET_EXPORTS: exports
+      STORAGE_BUCKET_FILES: files
+      STORAGE_PUBLIC_URL: ${STORAGE_PUBLIC_URL:-http://localhost:9000}
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_QUEUE_DB: 0
+      REDIS_CACHE_DB: 1
+      # Ollama IA analytique
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_AI_MODEL: ${OLLAMA_AI_MODEL:-llama3}
+      OLLAMA_TIMEOUT_MS: 120000
     ports:
       - '3001:3001'
 
+  # ── Frontend Next.js ───────────────────────────────────────
   frontend:
     build:
       context: ./apps/frontend
@@ -63,9 +169,12 @@ services:
       - backend
     environment:
       NEXT_PUBLIC_BACKEND_URL: ${BACKEND_URL:-http://localhost:3001}
+      NEXT_PUBLIC_WS_URL: ${BACKEND_URL:-http://localhost:3001}
     ports:
       - '3000:3000'
 
 volumes:
   postgres_data:
   redis_data:
+  minio_data:
+  ollama_data:

@@ -65,7 +65,7 @@ export class ChatbotController {
 
   @Get('alerts')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'MANAGER', 'QUALITY')
+  @Roles('ADMIN', 'MANAGER', 'QUALITY', 'AGENT')
   alerts(@CurrentUser() u: JwtPayload) {
     return this.chatbot.getQualityAlerts(u.tenantId);
   }

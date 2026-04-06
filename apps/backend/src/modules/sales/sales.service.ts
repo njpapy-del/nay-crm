@@ -114,13 +114,15 @@ export class SalesService {
 
   // ── Stats ─────────────────────────────────────────────────
 
-  async stats(tenantId: string) {
+  async stats(tenantId: string, agentId?: string) {
     const today = new Date(); today.setHours(0, 0, 0, 0);
+    const base: any = { tenantId };
+    if (agentId) base.agentId = agentId;
     const [total, confirmed, todayTotal, revenue] = await Promise.all([
-      this.prisma.sale.count({ where: { tenantId } }),
-      this.prisma.sale.count({ where: { tenantId, status: 'CONFIRMED' } }),
-      this.prisma.sale.count({ where: { tenantId, createdAt: { gte: today } } }),
-      this.prisma.sale.aggregate({ where: { tenantId, status: 'CONFIRMED' }, _sum: { amount: true } }),
+      this.prisma.sale.count({ where: base }),
+      this.prisma.sale.count({ where: { ...base, status: 'CONFIRMED' } }),
+      this.prisma.sale.count({ where: { ...base, createdAt: { gte: today } } }),
+      this.prisma.sale.aggregate({ where: { ...base, status: 'CONFIRMED' }, _sum: { amount: true } }),
     ]);
     return {
       total,

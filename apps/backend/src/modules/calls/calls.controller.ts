@@ -42,7 +42,7 @@ export class CallsController {
   }
 
   @Get('stats')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'MANAGER', 'AGENT')
   stats(@CurrentUser() user: any) {
     return this.calls.stats(user.tenantId);
   }

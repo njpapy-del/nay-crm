@@ -162,13 +162,32 @@ export class CallsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @OnEvent('dialer.call.ended')
-  onDialerCallEnded(data: { callId: string; agentId: string }) {
+  onDialerCallEnded(data: { callId: string; agentId: string; callLogId?: string }) {
     this.server.to(`agent:${data.agentId}`).emit('call:wrap_up', data);
+    this.server.to(`agent:${data.agentId}`).emit('call:postcall', {
+      callId: data.callId,
+      callLogId: data.callLogId,
+      source: 'dialer',
+    });
   }
 
   @OnEvent('dialer.preview')
   onDialerPreview(data: { agentId: string; lead: any; callId: string }) {
     this.server.to(`agent:${data.agentId}`).emit('call:preview', data);
+  }
+
+  @OnEvent('agent.status.changed')
+  onAgentStatusChanged(data: { tenantId: string; agentId: string; status: string; log: any }) {
+    this.server.to(`tenant:${data.tenantId}`).emit('agent:status:update', {
+      agentId: data.agentId,
+      status:  data.status,
+      log:     data.log,
+    });
+  }
+
+  @OnEvent('planning.request.approved')
+  onPlanningApproved(data: { tenantId: string; agentId: string; requestId: string }) {
+    this.server.to(`agent:${data.agentId}`).emit('planning:approved', data);
   }
 
   // ── Helpers ───────────────────────────────────────────────

@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Mic, Phone, Pencil, Trash2 } from 'lucide-react';
+import { ArrowLeft, Mic, Phone, Pencil, Trash2, Download, Play, Pause } from 'lucide-react';
 import { api } from '@/lib/api';
 import { clsx } from 'clsx';
 import { SaleForm } from '@/components/sales/sale-form';
@@ -128,12 +128,7 @@ export default function SaleDetailPage() {
             <span className="text-gray-400">{new Date(sale.call.startedAt).toLocaleString('fr-FR')}</span>
           </div>
           {sale.call.recording && (
-            <div className="mt-3 flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
-              <Mic size={16} className="text-blue-500" />
-              <span className="text-sm text-blue-700">Enregistrement ({fmtDur(sale.call.recording.durationSec)})</span>
-              <a href={sale.call.recording.filePath} target="_blank" rel="noreferrer"
-                className="ml-auto text-xs text-blue-600 hover:underline">Écouter / Télécharger</a>
-            </div>
+            <RecordingPlayer recording={sale.call.recording} />
           )}
         </div>
       )}
@@ -171,6 +166,59 @@ export default function SaleDetailPage() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+    </div>
+  );
+}
+
+// ─── RecordingPlayer ─────────────────────────────────────────────────────────
+
+const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
+const fmtDurLocal = (s: number) => { const m = Math.floor(s / 60); return m > 0 ? `${m}m ${s % 60}s` : `${s}s`; };
+
+function RecordingPlayer({ recording }: { recording: { id: string; durationSec: number } }) {
+  const audioRef  = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying]  = useState(false);
+  const [current, setCurrent]  = useState(0);
+  const [loaded,  setLoaded]   = useState(false);
+  const streamUrl  = `${BACKEND}/api/v1/recordings/${recording.id}/stream`;
+  const downloadUrl = `${BACKEND}/api/v1/recordings/${recording.id}/download`;
+
+  const toggle = () => {
+    if (!audioRef.current) return;
+    if (playing) { audioRef.current.pause(); setPlaying(false); }
+    else {
+      if (!loaded) { audioRef.current.src = streamUrl; setLoaded(true); }
+      audioRef.current.play(); setPlaying(true);
+    }
+  };
+
+  const pct = recording.durationSec > 0 ? Math.round((current / recording.durationSec) * 100) : 0;
+
+  return (
+    <div className="mt-3 p-3 bg-blue-50 rounded-lg">
+      <div className="flex items-center gap-3">
+        <Mic size={15} className="text-blue-500 shrink-0" />
+        <span className="text-sm text-blue-700 font-medium">
+          Enregistrement ({fmtDurLocal(recording.durationSec)})
+        </span>
+        <div className="flex-1 h-1.5 bg-blue-200 rounded-full overflow-hidden">
+          <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+        </div>
+        <span className="text-xs text-blue-500 w-10 text-right tabular-nums">{fmtDurLocal(current)}</span>
+        <button onClick={toggle}
+          className="p-1.5 rounded-full bg-blue-500 hover:bg-blue-600 text-white transition-colors">
+          {playing ? <Pause size={13} /> : <Play size={13} />}
+        </button>
+        <a href={downloadUrl} download
+          className="p-1.5 rounded-full bg-white border border-blue-200 text-blue-500 hover:bg-blue-100 transition-colors">
+          <Download size={13} />
+        </a>
+      </div>
+      <audio
+        ref={audioRef}
+        onTimeUpdate={() => setCurrent(Math.floor(audioRef.current?.currentTime ?? 0))}
+        onEnded={() => { setPlaying(false); setCurrent(0); }}
+      />
     </div>
   );
 }

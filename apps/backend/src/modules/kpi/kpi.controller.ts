@@ -17,7 +17,7 @@ export class KpiController {
   // ─── KPI global ou filtré ─────────────────────────────────────────────────
 
   @Get()
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'MANAGER', 'AGENT')
   async getKpi(
     @CurrentUser() user: any,
     @Query('dateFrom') dateFrom?: string,
@@ -50,7 +50,7 @@ export class KpiController {
   // ─── Série temporelle ─────────────────────────────────────────────────────
 
   @Get('timeseries')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'MANAGER', 'AGENT')
   async timeSeries(
     @CurrentUser() user: any,
     @Query('dateFrom') dateFrom?: string,

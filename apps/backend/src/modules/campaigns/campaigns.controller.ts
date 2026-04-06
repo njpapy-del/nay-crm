@@ -42,8 +42,14 @@ export class CampaignsController {
 
   @Get()
   @Roles('ADMIN', 'MANAGER', 'AGENT')
-  findAll(@CurrentUser() user: any, @Query('status') status?: string) {
-    return this.service.findAll(user.tenantId, status);
+  findAll(
+    @CurrentUser() user: any,
+    @Query('status')   status?: string,
+    @Query('search')   search?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo')   dateTo?: string,
+  ) {
+    return this.service.findAll(user.tenantId, { status, search, dateFrom, dateTo });
   }
 
   @Get(':id')
@@ -80,6 +86,26 @@ export class CampaignsController {
   @Roles('ADMIN', 'MANAGER')
   removeAgent(@CurrentUser() user: any, @Param('id') id: string, @Param('agentId') agentId: string) {
     return this.service.removeAgent(user.tenantId, id, agentId);
+  }
+
+  // ─── Dédoublonnage leads ─────────────────────────────────────────────────
+
+  @Post(':id/deduplicate')
+  @Roles('ADMIN', 'MANAGER')
+  deduplicate(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.service.deduplicateLeads(user.tenantId, id);
+  }
+
+  // ─── Recyclage intelligent ────────────────────────────────────────────────
+
+  @Post(':id/recycle')
+  @Roles('ADMIN', 'MANAGER')
+  recycle(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body('mode') mode: 'not_reached' | 'failed_calls' | 'all' = 'all',
+  ) {
+    return this.service.recycleLeads(user.tenantId, id, mode);
   }
 
   // ─── Settings ────────────────────────────────────────────────────────────

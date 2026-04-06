@@ -20,13 +20,100 @@ const CAMPAIGN_INCLUDE = {
 export class CampaignsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(tenantId: string, status?: string) {
-    const where = { tenantId, ...(status ? { status: status as any } : {}) };
+  async findAll(tenantId: string, filters?: {
+    status?: string;
+    search?: string;
+    dateFrom?: string;
+    dateTo?: string;
+  }) {
+    const where: any = { tenantId };
+    if (filters?.status)   where.status   = filters.status;
+    if (filters?.search)   where.name     = { contains: filters.search, mode: 'insensitive' };
+    if (filters?.dateFrom || filters?.dateTo) {
+      where.createdAt = {};
+      if (filters.dateFrom) where.createdAt.gte = new Date(filters.dateFrom);
+      if (filters.dateTo)   where.createdAt.lte = new Date(filters.dateTo + 'T23:59:59');
+    }
     const [data, total] = await this.prisma.$transaction([
       this.prisma.campaign.findMany({ where, include: CAMPAIGN_INCLUDE, orderBy: { createdAt: 'desc' } }),
       this.prisma.campaign.count({ where }),
     ]);
     return { data, meta: { total } };
+  }
+
+  // ── Recyclage intelligent ─────────────────────────────────────────────────
+
+  async recycleLeads(
+    tenantId:   string,
+    campaignId: string,
+    mode:       'not_reached' | 'failed_calls' | 'all',
+  ): Promise<{ recycled: number }> {
+    await this.findOne(tenantId, campaignId);
+
+    // not_reached  → CONTACTED (appelés mais pas convertis / non joints)
+    // failed_calls → LOST      (définitivement perdus / appels échoués)
+    // all          → les deux
+    const statusFilter: string[] =
+      mode === 'not_reached'  ? ['CONTACTED'] :
+      mode === 'failed_calls' ? ['LOST']      :
+      ['CONTACTED', 'LOST'];
+
+    const result = await this.prisma.lead.updateMany({
+      where: {
+        campaignId,
+        campaign: { tenantId },
+        status:   { in: statusFilter as any[] },
+      },
+      data: { status: 'NEW' },
+    });
+
+    return { recycled: result.count };
+  }
+
+  async deduplicateLeads(tenantId: string, campaignId: string): Promise<{ removed: number }> {
+    await this.findOne(tenantId, campaignId);
+
+    const leads = await this.prisma.lead.findMany({
+      where: { campaignId, campaign: { tenantId } },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, phone: true, email: true },
+    });
+
+    const seenPhone = new Map<string, string>(); // phone → first lead id
+    const seenEmail = new Map<string, string>(); // email → first lead id
+    const toDelete  = new Set<string>();
+
+    for (const lead of leads) {
+      let isDupe = false;
+
+      if (lead.phone) {
+        const normalized = lead.phone.replace(/\s+/g, '');
+        if (seenPhone.has(normalized)) {
+          isDupe = true;
+        } else {
+          seenPhone.set(normalized, lead.id);
+        }
+      }
+
+      if (!isDupe && lead.email) {
+        const normalized = lead.email.toLowerCase();
+        if (seenEmail.has(normalized)) {
+          isDupe = true;
+        } else {
+          seenEmail.set(normalized, lead.id);
+        }
+      }
+
+      if (isDupe) toDelete.add(lead.id);
+    }
+
+    if (toDelete.size === 0) return { removed: 0 };
+
+    await this.prisma.lead.deleteMany({
+      where: { id: { in: [...toDelete] } },
+    });
+
+    return { removed: toDelete.size };
   }
 
   async findOne(tenantId: string, id: string) {

@@ -10,6 +10,9 @@
     "test": "jest"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1024.0",
+    "@aws-sdk/s3-request-presigner": "^3.1024.0",
+    "@nestjs/bullmq": "^11.0.4",
     "@nestjs/cache-manager": "^3.1.0",
     "@nestjs/common": "^10.3.0",
     "@nestjs/config": "^3.2.0",
@@ -26,12 +29,15 @@
     "@prisma/client": "^5.11.0",
     "@types/pdfkit": "^0.17.5",
     "bcryptjs": "^2.4.3",
+    "bullmq": "^5.73.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "csv-parse": "^6.2.1",
     "docx": "^9.6.1",
     "exceljs": "^4.4.0",
     "helmet": "^8.1.0",
+    "ioredis": "^5.10.1",
+    "multer": "^2.1.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",
@@ -40,6 +46,7 @@
     "rxjs": "^7.8.1",
     "socket.io": "^4.8.3",
     "stripe": "^22.0.0",
+    "uuid": "^13.0.0",
     "xlsx": "^0.18.5"
   },
   "prisma": {

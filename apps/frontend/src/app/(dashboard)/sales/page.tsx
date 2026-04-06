@@ -8,6 +8,7 @@ import { clsx } from 'clsx';
 import { SaleFilters } from '@/components/sales/sale-filters';
 import { SaleForm } from '@/components/sales/sale-form';
 import * as Dialog from '@radix-ui/react-dialog';
+import { useAuthStore } from '@/stores/auth.store';
 
 interface Sale {
   id: string; createdAt: string; status: string; amount: string | number;
@@ -35,6 +36,9 @@ type Filters = Parameters<typeof SaleFilters>[0]['value'];
 const EMPTY_FILTERS: Filters = { agentId: '', campaignId: '', status: '', qualification: '', from: '', to: '', minAmount: '', maxAmount: '' };
 
 export default function SalesPage() {
+  const { user } = useAuthStore();
+  const isAgent = user?.role === 'AGENT';
+
   const [sales,   setSales]   = useState<Sale[]>([]);
   const [stats,   setStats]   = useState<Stats | null>(null);
   const [total,   setTotal]   = useState(0);
@@ -52,13 +56,15 @@ export default function SalesPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [salesRes, statsRes] = await Promise.all([
+      const [salesRes, statsRes] = await Promise.allSettled([
         api.get(`/sales?${buildParams(filters)}&limit=100`),
         api.get('/sales/stats'),
       ]);
-      setSales(salesRes.data.data);
-      setTotal(salesRes.data.meta.total);
-      setStats(statsRes.data);
+      if (salesRes.status === 'fulfilled') {
+        setSales(salesRes.value.data.data);
+        setTotal(salesRes.value.data.meta.total);
+      }
+      if (statsRes.status === 'fulfilled') setStats(statsRes.value.data);
     } finally { setLoading(false); }
   }, [filters, buildParams]);
 
@@ -84,12 +90,16 @@ export default function SalesPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Ventes</h1>
         <div className="flex gap-2">
-          <button onClick={() => exportFile('xlsx')} className="btn-secondary flex items-center gap-1.5 text-sm">
-            <Download size={15} /> Excel
-          </button>
-          <button onClick={() => exportFile('docx')} className="btn-secondary flex items-center gap-1.5 text-sm">
-            <Download size={15} /> Word
-          </button>
+          {!isAgent && (
+            <>
+              <button onClick={() => exportFile('xlsx')} className="btn-secondary flex items-center gap-1.5 text-sm">
+                <Download size={15} /> Excel
+              </button>
+              <button onClick={() => exportFile('docx')} className="btn-secondary flex items-center gap-1.5 text-sm">
+                <Download size={15} /> Word
+              </button>
+            </>
+          )}
           <button onClick={() => setShowNew(true)} className="btn-primary flex items-center gap-1.5 text-sm">
             <Plus size={15} /> Nouvelle vente
           </button>

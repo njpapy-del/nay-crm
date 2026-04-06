@@ -178,7 +178,7 @@ export default function TeamPage() {
                     </span>
                   </td>
                   <td className="px-5 py-3">
-                    {u.id !== me?.sub && (
+                    {u.id !== me?.id && (
                       <div className="flex items-center gap-1">
                         <button onClick={() => toggleActive(u.id)} disabled={!!acting}
                           title={u.isActive ? 'Désactiver' : 'Activer'}

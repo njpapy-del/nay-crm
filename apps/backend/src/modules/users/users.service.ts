@@ -29,7 +29,9 @@ export class UsersService {
   constructor(private prisma: PrismaService) {}
 
   async findAll(tenantId: string, query: PaginationDto) {
-    const { page = 1, limit = 20, search } = query;
+    const page = Math.max(1, parseInt(String(query.page ?? 1), 10) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(String(query.limit ?? 20), 10) || 20));
+    const { search } = query;
     const skip = (page - 1) * limit;
 
     const where = {

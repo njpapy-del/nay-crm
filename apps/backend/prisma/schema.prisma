@@ -8,8 +8,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ─────────────────────────────────────────
@@ -150,6 +151,10 @@ enum CallQualification {
   WRONG_NUMBER
   VOICEMAIL
   DNC
+  NRP
+  UNREACHABLE
+  REFUSAL
+  OUT_OF_TARGET
   OTHER
 }
 
@@ -157,6 +162,31 @@ enum CallLogStatus {
   PENDING
   QUALIFIED
   REVIEWED
+}
+
+enum AgentStatusType {
+  AVAILABLE
+  IN_CALL
+  DEBRIEF
+  LUNCH_BREAK
+  COFFEE_BREAK
+  TRAINING
+  OFFLINE
+}
+
+enum PlanningEventType {
+  BREAK
+  LUNCH
+  TRAINING
+  ABSENCE
+  MEETING
+}
+
+enum PlanningStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
 }
 
 enum ContactListStatus {
@@ -241,6 +271,12 @@ model Tenant {
   reminders        Reminder[]
   scripts          Script[]
   scriptResponses  ScriptResponse[]
+  callNotes             CallNote[]
+  agentStatusLogs       AgentStatusLog[]
+  agentPlannings        AgentPlanning[]
+  agentPlanningRequests AgentPlanningRequest[]
+  aiJobs                AiJob[]
+  aiUsage               AiUsage[]
 
   @@index([slug])
   @@map("tenants")
@@ -291,6 +327,13 @@ model User {
   reminders           Reminder[]
   createdScripts      Script[]     @relation("ScriptCreator")
   scriptResponses     ScriptResponse[] @relation("AgentScriptResponses")
+  callNotes           CallNote[]   @relation("AgentCallNotes")
+  statusLogs          AgentStatusLog[]        @relation("AgentStatusLogs")
+  agentPlannings      AgentPlanning[]         @relation("AgentPlannings")
+  createdPlannings    AgentPlanning[]         @relation("PlanningCreator")
+  planningRequests    AgentPlanningRequest[]  @relation("AgentPlanningRequests")
+  reviewedRequests    AgentPlanningRequest[]  @relation("PlanningReviewer")
+  aiJobs              AiJob[]                 @relation("UserAiJobs")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -886,6 +929,9 @@ model CallLog {
   status        CallLogStatus     @default(PENDING)
   notes         String?
   agentNotes    String?
+  rdvAt         DateTime?         // pour qualification APPOINTMENT
+  callbackAt    DateTime?         // pour qualification CALLBACK
+  scriptResponseId String?        // lien vers réponses script
   qualifiedAt   DateTime?
   reviewedAt    DateTime?
   createdAt     DateTime          @default(now())
@@ -895,6 +941,7 @@ model CallLog {
   call     Call      @relation(fields: [callId], references: [id], onDelete: Cascade)
   agent    User?     @relation("CallLogAgent", fields: [agentId], references: [id], onDelete: SetNull)
   campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  callNotes CallNote[]
 
   @@index([tenantId])
   @@index([tenantId, agentId])
@@ -902,6 +949,28 @@ model CallLog {
   @@index([tenantId, qualification])
   @@index([tenantId, status])
   @@map("call_logs")
+}
+
+// ─────────────────────────────────────────
+// CallNote — Notes post-appel agents
+// ─────────────────────────────────────────
+
+model CallNote {
+  id         String   @id @default(cuid())
+  tenantId   String
+  callLogId  String
+  agentId    String
+  content    String   @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  callLog CallLog @relation(fields: [callLogId], references: [id], onDelete: Cascade)
+  agent   User    @relation("AgentCallNotes", fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([callLogId])
+  @@index([tenantId])
+  @@map("call_notes")
 }
 
 // ─────────────────────────────────────────
@@ -1461,4 +1530,144 @@ model ScriptResponseValue {
   @@index([responseId])
   @@index([fieldId])
   @@map("script_response_values")
+}
+
+// ─────────────────────────────────────────
+// AgentStatusLog — Historique statuts agents
+// ─────────────────────────────────────────
+
+model AgentStatusLog {
+  id          String          @id @default(cuid())
+  tenantId    String
+  agentId     String
+  status      AgentStatusType
+  startedAt   DateTime        @default(now())
+  endedAt     DateTime?
+  durationSec Int?
+  notes       String?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agent  User   @relation("AgentStatusLogs", fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, agentId])
+  @@index([tenantId, startedAt])
+  @@map("agent_status_logs")
+}
+
+// ─────────────────────────────────────────
+// AgentPlanning — Événements planifiés
+// ─────────────────────────────────────────
+
+model AgentPlanning {
+  id          String            @id @default(cuid())
+  tenantId    String
+  agentId     String
+  createdById String
+  type        PlanningEventType
+  title       String
+  startAt     DateTime
+  endAt       DateTime
+  status      PlanningStatus    @default(APPROVED)
+  notes       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agent     User   @relation("AgentPlannings", fields: [agentId], references: [id], onDelete: Cascade)
+  createdBy User   @relation("PlanningCreator", fields: [createdById], references: [id])
+
+  @@index([tenantId, agentId])
+  @@index([tenantId, startAt])
+  @@map("agent_planning")
+}
+
+// ─────────────────────────────────────────
+// AgentPlanningRequest — Demandes agents
+// ─────────────────────────────────────────
+
+model AgentPlanningRequest {
+  id             String            @id @default(cuid())
+  tenantId       String
+  agentId        String
+  type           PlanningEventType
+  title          String
+  startAt        DateTime
+  endAt          DateTime
+  status         PlanningStatus    @default(PENDING)
+  motif          String?
+  reviewedById   String?
+  reviewedAt     DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agent      User   @relation("AgentPlanningRequests", fields: [agentId], references: [id], onDelete: Cascade)
+  reviewedBy User?  @relation("PlanningReviewer", fields: [reviewedById], references: [id])
+
+  @@index([tenantId, agentId])
+  @@index([tenantId, status])
+  @@map("agent_planning_requests")
+}
+
+// ─────────────────────────────────────────
+// IA Analytique — Enums
+// ─────────────────────────────────────────
+
+enum AiJobType {
+  SUMMARY
+  SCORING
+  SUGGESTIONS
+  PERFORMANCE
+}
+
+enum AiJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// ─────────────────────────────────────────
+// AiJob — Résultats des analyses IA
+// ─────────────────────────────────────────
+
+model AiJob {
+  id           String      @id @default(cuid())
+  tenantId     String
+  userId       String
+  type         AiJobType
+  status       AiJobStatus @default(PENDING)
+  input        Json
+  result       Json?
+  error        String?
+  model        String      @default("llama3")
+  processingMs Int?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation("UserAiJobs", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, type])
+  @@index([tenantId, status])
+  @@index([userId])
+  @@map("ai_jobs")
+}
+
+// ─────────────────────────────────────────
+// AiUsage — Quota mensuel par tenant
+// ─────────────────────────────────────────
+
+model AiUsage {
+  id        String   @id @default(cuid())
+  tenantId  String
+  month     String   // format "2026-04"
+  jobCount  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, month])
+  @@map("ai_usage")
 }

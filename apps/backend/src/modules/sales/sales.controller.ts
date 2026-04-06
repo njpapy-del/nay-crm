@@ -24,13 +24,16 @@ export class SalesController {
   @Get()
   @Roles('ADMIN', 'MANAGER', 'AGENT')
   findAll(@CurrentUser() user: any, @Query() dto: FilterSaleDto) {
+    // Agents can only see their own sales
+    if (user.role === 'AGENT') dto = { ...dto, agentId: user.id };
     return this.salesService.findAll(user.tenantId, dto);
   }
 
   @Get('stats')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'MANAGER', 'AGENT')
   stats(@CurrentUser() user: any) {
-    return this.salesService.stats(user.tenantId);
+    const agentId = user.role === 'AGENT' ? user.id : undefined;
+    return this.salesService.stats(user.tenantId, agentId);
   }
 
   @Get('export/xlsx')

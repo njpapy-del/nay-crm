@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus, Users, Target, PlayCircle, PauseCircle } from 'lucide-react';
+import { Plus, Users, Target, PlayCircle, PauseCircle, Search, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { clsx } from 'clsx';
 
@@ -41,20 +41,29 @@ const FILTERS = [
 
 export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('');
+  const [total,     setTotal]     = useState(0);
+  const [loading,   setLoading]   = useState(true);
+  const [filter,    setFilter]    = useState('');
+  const [search,    setSearch]    = useState('');
+  const [dateFrom,  setDateFrom]  = useState('');
+  const [dateTo,    setDateTo]    = useState('');
 
   const fetchCampaigns = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (filter) params.set('status', filter);
+      if (filter)   params.set('status',   filter);
+      if (search)   params.set('search',   search);
+      if (dateFrom) params.set('dateFrom', dateFrom);
+      if (dateTo)   params.set('dateTo',   dateTo);
       const res = await api.get(`/campaigns?${params}`);
-      setCampaigns(res.data.data);
-      setTotal(res.data.meta.total);
+      const d = res.data?.data ?? res.data;
+      setCampaigns(Array.isArray(d) ? d : d.data ?? []);
+      setTotal(res.data?.meta?.total ?? res.data?.data?.length ?? 0);
     } finally { setLoading(false); }
-  }, [filter]);
+  }, [filter, search, dateFrom, dateTo]);
+
+  const clearFilters = () => { setFilter(''); setSearch(''); setDateFrom(''); setDateTo(''); };
 
   useEffect(() => { fetchCampaigns(); }, [fetchCampaigns]);
 
@@ -78,14 +87,44 @@ export default function CampaignsPage() {
       </div>
 
       {/* Filtres */}
-      <div className="flex gap-2 flex-wrap">
-        {FILTERS.map((f) => (
-          <button key={f.value} onClick={() => setFilter(f.value)}
-            className={clsx('px-3 py-1 rounded-full text-xs font-medium transition-colors',
-              filter === f.value ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
-            {f.label}
-          </button>
-        ))}
+      <div className="space-y-3">
+        {/* Recherche + dates */}
+        <div className="flex flex-wrap gap-3">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Rechercher une campagne…"
+              className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-300"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-500 shrink-0">Du</label>
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
+              className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-300" />
+            <label className="text-xs text-gray-500 shrink-0">Au</label>
+            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
+              className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-300" />
+          </div>
+          {(filter || search || dateFrom || dateTo) && (
+            <button onClick={clearFilters}
+              className="flex items-center gap-1 px-3 py-2 text-xs font-medium text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+              <X size={13} /> Réinitialiser
+            </button>
+          )}
+        </div>
+
+        {/* Filtres statut */}
+        <div className="flex gap-2 flex-wrap">
+          {FILTERS.map((f) => (
+            <button key={f.value} onClick={() => setFilter(f.value)}
+              className={clsx('px-3 py-1 rounded-full text-xs font-medium transition-colors',
+                filter === f.value ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Grille */}

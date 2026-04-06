@@ -38,6 +38,14 @@ import { SubscriptionsModule } from './modules/subscriptions/subscriptions.modul
 import { BillingModule } from './modules/billing/billing.module';
 import { PermissionsModule } from './modules/permissions/permissions.module';
 import { ScriptsModule } from './modules/scripts/scripts.module';
+import { QualificationsModule } from './modules/qualifications/qualifications.module';
+import { AgentStatusModule } from './modules/agent-status/agent-status.module';
+import { PlanningModule } from './modules/planning/planning.module';
+import { StorageModule } from './modules/storage/storage.module';
+import { RedisModule } from './redis/redis.module';
+import { QueueModule } from './modules/queue/queue.module';
+import { AiAnalyticsModule } from './modules/ai-analytics/ai-analytics.module';
+import { WorkersModule } from './modules/workers/workers.module';
 import { TenantMiddleware } from './common/middleware/tenant.middleware';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -90,6 +98,14 @@ import { ConfigService } from '@nestjs/config';
     BillingModule,
     PermissionsModule,
     ScriptsModule,
+    QualificationsModule,
+    AgentStatusModule,
+    PlanningModule,
+    StorageModule,
+    RedisModule,
+    QueueModule,
+    AiAnalyticsModule,
+    WorkersModule,
   ],
 })
 export class AppModule implements NestModule {
