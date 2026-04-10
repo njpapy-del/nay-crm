@@ -127,6 +127,10 @@ export class PlanningService {
     return this.prisma.agentPlanningRequest.findMany({
       where: { tenantId, agentId },
       orderBy: { createdAt: 'desc' },
+      include: {
+        agent:      { select: { id: true, firstName: true, lastName: true } },
+        reviewedBy: { select: { id: true, firstName: true, lastName: true } },
+      },
     });
   }
 }

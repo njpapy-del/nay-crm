@@ -5,9 +5,10 @@ import { AgentStatusType } from '@prisma/client';
 
 // Minutes before an alert is raised per status type
 const ALERT_LIMITS_MIN: Partial<Record<AgentStatusType, number>> = {
-  LUNCH_BREAK:  60,
-  COFFEE_BREAK: 15,
-  DEBRIEF:      20,
+  LUNCH_BREAK:   60,
+  COFFEE_BREAK:  15,
+  TOILET_BREAK:  10,
+  DEBRIEF:       20,
 };
 
 const AGENT_SELECT = { id: true, firstName: true, lastName: true };
@@ -69,7 +70,7 @@ export class AgentStatusService {
 
     const sec: Record<string, number> = {
       AVAILABLE: 0, IN_CALL: 0, DEBRIEF: 0,
-      LUNCH_BREAK: 0, COFFEE_BREAK: 0, TRAINING: 0, OFFLINE: 0,
+      LUNCH_BREAK: 0, COFFEE_BREAK: 0, TOILET_BREAK: 0, TRAINING: 0, OFFLINE: 0,
     };
 
     for (const log of logs) {
@@ -81,7 +82,7 @@ export class AgentStatusService {
     return {
       ...sec,
       production: sec.AVAILABLE + sec.IN_CALL + sec.DEBRIEF,
-      pause:      sec.LUNCH_BREAK + sec.COFFEE_BREAK,
+      pause:      sec.LUNCH_BREAK + sec.COFFEE_BREAK + sec.TOILET_BREAK,
       training:   sec.TRAINING,
     };
   }

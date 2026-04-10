@@ -10,12 +10,15 @@ import {
   CreatePlanningDto, CreateRequestDto, ReviewRequestDto, GetPlanningDto,
 } from './dto/planning.dto';
 
+const REVIEWER_ROLES = ['MANAGER', 'ADMIN', 'HR'];
+const ALL_ROLES = ['MANAGER', 'ADMIN', 'AGENT', 'HR', 'QUALITY', 'QUALITY_SUPERVISOR'];
+
 @Controller('planning')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class PlanningController {
   constructor(private readonly svc: PlanningService) {}
 
-  // ── Events (manager/admin) ────────────────────────────────────
+  // ── Events ────────────────────────────────────────────────────
 
   @Post('events')
   @Roles('MANAGER', 'ADMIN')
@@ -24,9 +27,8 @@ export class PlanningController {
   }
 
   @Get('events')
-  @Roles('MANAGER', 'ADMIN', 'AGENT')
+  @Roles(...ALL_ROLES)
   getEvents(@CurrentUser() user: any, @Query() dto: GetPlanningDto) {
-    // Agents see only their own events
     if (user.role === 'AGENT') dto = { ...dto, agentId: user.id };
     return this.svc.getEvents(user.tenantId, dto);
   }
@@ -37,28 +39,28 @@ export class PlanningController {
     return this.svc.deleteEvent(user.tenantId, id);
   }
 
-  // ── Requests (agent → manager validation) ────────────────────
+  // ── Requests ──────────────────────────────────────────────────
 
   @Post('requests')
-  @Roles('AGENT', 'MANAGER', 'ADMIN')
+  @Roles(...ALL_ROLES)
   createRequest(@CurrentUser() user: any, @Body() dto: CreateRequestDto) {
     return this.svc.createRequest(user.tenantId, user.sub, dto);
   }
 
   @Get('requests')
-  @Roles('MANAGER', 'ADMIN')
+  @Roles(...REVIEWER_ROLES)
   getRequests(@CurrentUser() user: any, @Query() dto: GetPlanningDto) {
     return this.svc.getRequests(user.tenantId, dto);
   }
 
   @Get('requests/mine')
-  @Roles('AGENT', 'MANAGER', 'ADMIN')
+  @Roles(...ALL_ROLES)
   myRequests(@CurrentUser() user: any) {
     return this.svc.getMyRequests(user.tenantId, user.sub);
   }
 
   @Post('requests/:id/review')
-  @Roles('MANAGER', 'ADMIN')
+  @Roles(...REVIEWER_ROLES)
   reviewRequest(
     @CurrentUser() user: any,
     @Param('id') id: string,
