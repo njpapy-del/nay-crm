@@ -14,6 +14,7 @@ import { InvoicesModule } from './modules/invoices/invoices.module';
 import { CampaignsModule } from './modules/campaigns/campaigns.module';
 import { LeadsModule } from './modules/leads/leads.module';
 import { AppointmentsModule } from './modules/appointments/appointments.module';
+import { CampaignCriteriaModule } from './modules/campaign-criteria/campaign-criteria.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { CallsModule } from './modules/calls/calls.module';
 import { SupervisionModule } from './modules/supervision/supervision.module';
@@ -33,6 +34,10 @@ import { KpiModule } from './modules/kpi/kpi.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { ReportingModule } from './modules/reporting/reporting.module';
 import { ChatbotModule } from './modules/chatbot/chatbot.module';
+import { InternalChatModule } from './modules/internal-chat/internal-chat.module';
+import { QualityGridModule } from './modules/quality-grid/quality-grid.module';
+import { QualityModule } from './modules/quality/quality.module';
+import { HrModule } from './modules/hr/hr.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { BillingModule } from './modules/billing/billing.module';
@@ -46,6 +51,7 @@ import { RedisModule } from './redis/redis.module';
 import { QueueModule } from './modules/queue/queue.module';
 import { AiAnalyticsModule } from './modules/ai-analytics/ai-analytics.module';
 import { WorkersModule } from './modules/workers/workers.module';
+import { EventBusModule } from './modules/event-bus/event-bus.module';
 import { TenantMiddleware } from './common/middleware/tenant.middleware';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -75,6 +81,7 @@ import { ConfigService } from '@nestjs/config';
     CampaignsModule,
     LeadsModule,
     AppointmentsModule,
+    CampaignCriteriaModule,
     CallsModule,
     SupervisionModule,
     RealtimeModule,
@@ -93,6 +100,10 @@ import { ConfigService } from '@nestjs/config';
     AnalyticsModule,
     ReportingModule,
     ChatbotModule,
+    InternalChatModule,
+    QualityGridModule,
+    QualityModule,
+    HrModule,
     TenantsModule,
     SubscriptionsModule,
     BillingModule,
@@ -106,6 +117,7 @@ import { ConfigService } from '@nestjs/config';
     QueueModule,
     AiAnalyticsModule,
     WorkersModule,
+    EventBusModule,
   ],
 })
 export class AppModule implements NestModule {

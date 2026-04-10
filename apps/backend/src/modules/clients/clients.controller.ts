@@ -8,6 +8,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { ClientsService } from './clients.service';
 import { CreateClientDto } from './dto/create-client.dto';
 import { FilterClientsDto } from './dto/filter-clients.dto';
+import { QualifyClientDto } from './dto/qualify-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 
 @ApiTags('Clients')
@@ -45,9 +46,16 @@ export class ClientsController {
 
   @Patch(':id')
   @Roles(Role.ADMIN, Role.MANAGER, Role.AGENT)
-  @ApiOperation({ summary: 'Modifier un client' })
+  @ApiOperation({ summary: 'Modifier un client (agent: champs info seulement, bloqué si qualifié)' })
   update(@Param('id') id: string, @Body() dto: UpdateClientDto, @CurrentUser() user: JwtPayload) {
-    return this.clientsService.update(id, dto, user.tenantId);
+    return this.clientsService.update(id, dto, user.tenantId, user.role as Role);
+  }
+
+  @Patch(':id/qualify')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: 'Qualifier un client (RDV, FACTURE, VENDU) — Manager/Admin uniquement' })
+  qualify(@Param('id') id: string, @Body() dto: QualifyClientDto, @CurrentUser() user: JwtPayload) {
+    return this.clientsService.qualify(id, dto, user.tenantId, user.sub);
   }
 
   @Delete(':id')

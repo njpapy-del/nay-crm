@@ -1,8 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Role } from '@prisma/client';
 import { buildPaginationMeta } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateClientDto } from './dto/create-client.dto';
 import { FilterClientsDto } from './dto/filter-clients.dto';
+import { QualifyClientDto } from './dto/qualify-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 
 const CLIENT_SELECT = {
@@ -12,12 +14,20 @@ const CLIENT_SELECT = {
   email: true,
   phone: true,
   company: true,
+  address: true,
+  postalCode: true,
   status: true,
   notes: true,
+  qualification: true,
+  qualifiedAt: true,
+  qualifiedById: true,
   assignedAgentId: true,
   createdAt: true,
   updatedAt: true,
   assignedAgent: {
+    select: { id: true, firstName: true, lastName: true },
+  },
+  qualifiedBy: {
     select: { id: true, firstName: true, lastName: true },
   },
 };
@@ -77,11 +87,39 @@ export class ClientsService {
     });
   }
 
-  async update(id: string, dto: UpdateClientDto, tenantId: string) {
+  async update(id: string, dto: UpdateClientDto, tenantId: string, userRole: Role) {
+    const existing = await this.findOne(id, tenantId);
+
+    // Si qualifié et que l'utilisateur est AGENT → interdit
+    if (existing.qualification && userRole === Role.AGENT) {
+      throw new ForbiddenException('Ce client est qualifié. Seul un Manager ou Admin peut le modifier.');
+    }
+
+    // L'agent ne peut modifier que les champs info (pas qualification/status)
+    let data: any = dto;
+    if (userRole === Role.AGENT) {
+      const { firstName, lastName, phone, email, address, postalCode, notes } = dto as any;
+      data = { firstName, lastName, phone, email, address, postalCode, notes };
+      // Retirer les undefined
+      Object.keys(data).forEach(k => data[k] === undefined && delete data[k]);
+    }
+
+    return this.prisma.client.update({
+      where: { id },
+      data,
+      select: CLIENT_SELECT,
+    });
+  }
+
+  async qualify(id: string, dto: QualifyClientDto, tenantId: string, qualifiedById: string) {
     await this.findOne(id, tenantId);
     return this.prisma.client.update({
       where: { id },
-      data: dto,
+      data: {
+        qualification: dto.qualification,
+        qualifiedAt: new Date(),
+        qualifiedById,
+      },
       select: CLIENT_SELECT,
     });
   }

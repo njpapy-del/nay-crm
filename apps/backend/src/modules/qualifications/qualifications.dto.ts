@@ -14,6 +14,16 @@ export class QualifyCallDto {
   @IsOptional() @IsString()  scriptResponseId?: string;
   @IsOptional() @IsString()  campaignId?: string;
   @IsOptional() @IsBoolean() nextCall?: boolean;      // passer au prochain appel
+
+  // Fiche client à créer/compléter si qualification = APPOINTMENT
+  @IsOptional() @IsString() clientFirstName?: string;
+  @IsOptional() @IsString() clientLastName?: string;
+  @IsOptional() @IsString() clientPhone?: string;
+  @IsOptional() @IsString() clientEmail?: string;
+  @IsOptional() @IsString() clientCompany?: string;
+  @IsOptional() @IsString() clientAddress?: string;
+  @IsOptional() @IsString() clientPostalCode?: string;
+  @IsOptional() @IsString() clientNotes?: string;
 }
 
 export const QUALIF_META: Record<CallQualification, {

@@ -12,13 +12,25 @@ const QUALIFICATION_LABELS: Record<string, string> = {
 export class CallLogsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(tenantId: string, filters: FilterCallLogsDto) {
+  async findAll(
+    tenantId: string,
+    filters: FilterCallLogsDto,
+    requesterRole?: string,
+    requesterId?: string,
+  ) {
     const { agentId, campaignId, phone, qualification, status,
       dateFrom, dateTo, minDuration, search, page = 1, limit = 30 } = filters;
     const skip = (page - 1) * limit;
 
     const where: any = { tenantId };
-    if (agentId)       where.agentId    = agentId;
+
+    // AGENT : voit uniquement ses propres appels
+    if (requesterRole === 'AGENT' && requesterId) {
+      where.agentId = requesterId;
+    } else if (agentId) {
+      where.agentId = agentId;
+    }
+
     if (campaignId)    where.campaignId = campaignId;
     if (qualification) where.qualification = qualification;
     if (status)        where.status     = status;
@@ -34,17 +46,21 @@ export class CallLogsService {
     if (dateFrom || dateTo) {
       where.createdAt = {};
       if (dateFrom) where.createdAt.gte = new Date(dateFrom);
-      if (dateTo)   where.createdAt.lte = new Date(dateTo);
+      if (dateTo)   where.createdAt.lte = new Date(dateTo + 'T23:59:59');
     }
 
     if (search) {
       where.AND = [{
-        agent: {
-          OR: [
-            { firstName: { contains: search, mode: 'insensitive' } },
-            { lastName:  { contains: search, mode: 'insensitive' } },
-          ],
-        },
+        OR: [
+          { agent: { firstName: { contains: search, mode: 'insensitive' } } },
+          { agent: { lastName:  { contains: search, mode: 'insensitive' } } },
+          { call:  { lead:   { firstName: { contains: search, mode: 'insensitive' } } } },
+          { call:  { lead:   { lastName:  { contains: search, mode: 'insensitive' } } } },
+          { call:  { client: { firstName: { contains: search, mode: 'insensitive' } } } },
+          { call:  { client: { lastName:  { contains: search, mode: 'insensitive' } } } },
+          { callerNumber: { contains: search } },
+          { calleeNumber: { contains: search } },
+        ],
       }];
     }
 
@@ -58,8 +74,9 @@ export class CallLogsService {
           call: {
             select: {
               id: true, direction: true, status: true, asteriskId: true,
-              client: { select: { id: true, firstName: true, lastName: true } },
-              lead:   { select: { id: true, firstName: true, lastName: true } },
+              recording: { select: { id: true, durationSec: true, format: true } },
+              client: { select: { id: true, firstName: true, lastName: true, phone: true, email: true } },
+              lead:   { select: { id: true, firstName: true, lastName: true, phone: true, email: true, company: true } },
             },
           },
         },
@@ -151,7 +168,7 @@ export class CallLogsService {
   async exportCsv(tenantId: string, filters: FilterCallLogsDto): Promise<string> {
     const { data } = await this.findAll(tenantId, { ...filters, limit: 100000 });
     const header = 'Date,Agent,De,Vers,Durée (s),Qualification,Statut,Notes,Campagne';
-    const rows = data.map((l) => [
+    const rows = (data as any[]).map((l) => [
       new Date(l.createdAt).toLocaleString('fr-FR'),
       l.agent ? `${l.agent.firstName} ${l.agent.lastName}` : '',
       l.callerNumber, l.calleeNumber, l.durationSec,

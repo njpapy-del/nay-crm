@@ -16,9 +16,9 @@ export class CallLogsController {
   constructor(private readonly service: CallLogsService) {}
 
   @Get()
-  @Roles('ADMIN', 'MANAGER', 'AGENT')
+  @Roles('ADMIN', 'MANAGER', 'AGENT', 'QUALITY', 'QUALITY_SUPERVISOR')
   findAll(@CurrentUser() user: any, @Query() filters: FilterCallLogsDto) {
-    return this.service.findAll(user.tenantId, filters);
+    return this.service.findAll(user.tenantId, filters, user.role, user.id);
   }
 
   @Get('stats')
