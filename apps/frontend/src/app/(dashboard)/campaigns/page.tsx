@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Plus, Users, Target, PlayCircle, PauseCircle, Search, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { clsx } from 'clsx';
+import { useAuthStore } from '@/stores/auth.store';
 
 interface Campaign {
   id: string;
@@ -40,6 +41,8 @@ const FILTERS = [
 ];
 
 export default function CampaignsPage() {
+  const { user } = useAuthStore();
+  const isAgent = user?.role === 'AGENT';
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [total,     setTotal]     = useState(0);
   const [loading,   setLoading]   = useState(true);
@@ -81,9 +84,11 @@ export default function CampaignsPage() {
           <h1 className="text-2xl font-bold text-gray-900">Campagnes</h1>
           <p className="text-gray-500 text-sm mt-0.5">{total} campagnes au total</p>
         </div>
-        <Link href="/campaigns/new" className="btn-primary flex items-center gap-2">
-          <Plus size={16} /> Nouvelle campagne
-        </Link>
+        {!isAgent && (
+          <Link href="/campaigns/new" className="btn-primary flex items-center gap-2">
+            <Plus size={16} /> Nouvelle campagne
+          </Link>
+        )}
       </div>
 
       {/* Filtres */}
@@ -182,7 +187,7 @@ export default function CampaignsPage() {
                 <Link href={`/campaigns/${c.id}`} className="text-xs text-primary-600 font-medium hover:underline">
                   Voir les leads →
                 </Link>
-                {(c.status === 'ACTIVE' || c.status === 'PAUSED') && (
+                {!isAgent && (c.status === 'ACTIVE' || c.status === 'PAUSED') && (
                   <button onClick={() => toggleStatus(c)}
                     className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-700">
                     {c.status === 'ACTIVE' ? <PauseCircle size={16} /> : <PlayCircle size={16} />}

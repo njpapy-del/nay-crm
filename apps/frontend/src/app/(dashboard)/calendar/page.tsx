@@ -45,8 +45,10 @@ export default function CalendarPage() {
   const fetchAppointments = useCallback(async () => {
     const from = new Date(year, month, 1).toISOString();
     const to   = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
-    const res  = await api.get(`/appointments?from=${from}&to=${to}`);
-    setAppointments(res.data.data);
+    try {
+      const res = await api.get(`/appointments?from=${from}&to=${to}`);
+      setAppointments(res.data?.data ?? res.data ?? []);
+    } catch (e: any) { console.error('[calendar]', e?.message); }
   }, [year, month]);
 
   useEffect(() => { fetchAppointments(); }, [fetchAppointments]);

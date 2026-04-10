@@ -35,15 +35,17 @@ export default function ResponsesPage() {
 
   async function load() {
     setLoading(true);
-    const [sRes, rRes] = await Promise.all([
-      api.get(`/scripts/${id}`),
-      api.get(`/scripts/${id}/responses?page=${page}&limit=20`),
-    ]);
-    setScript(sRes.data);
-    const rData = rRes.data?.data ?? rRes.data ?? [];
-    setResponses(Array.isArray(rData) ? rData : []);
-    setTotal(rRes.data?.total ?? 0);
-    setLoading(false);
+    try {
+      const [sRes, rRes] = await Promise.all([
+        api.get(`/scripts/${id}`),
+        api.get(`/scripts/${id}/responses?page=${page}&limit=20`),
+      ]);
+      setScript(sRes.data);
+      const rData = rRes.data?.data ?? rRes.data ?? [];
+      setResponses(Array.isArray(rData) ? rData : []);
+      setTotal(rRes.data?.total ?? 0);
+    } catch (e: any) { console.error('[script responses]', e?.message); }
+    finally { setLoading(false); }
   }
 
   async function exportCsv() {

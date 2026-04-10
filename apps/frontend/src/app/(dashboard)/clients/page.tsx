@@ -3,20 +3,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Plus, Search } from 'lucide-react';
 import { api } from '@/lib/api';
-import { ClientsTable } from '@/components/clients/clients-table';
+import { useAuthStore } from '@/stores/auth.store';
+import { ClientsTable, Client } from '@/components/clients/clients-table';
 import { ClientFormModal } from '@/components/clients/client-form-modal';
-
-interface Client {
-  id: string;
-  firstName: string;
-  lastName: string;
-  email?: string;
-  phone: string;
-  company?: string;
-  status: string;
-  assignedAgent?: { firstName: string; lastName: string };
-  createdAt: string;
-}
+import { QualifyModal } from '@/components/clients/qualify-modal';
 
 interface Meta {
   total: number;
@@ -26,6 +16,10 @@ interface Meta {
 }
 
 export default function ClientsPage() {
+  const { user } = useAuthStore();
+  const userRole = user?.role ?? 'AGENT';
+  const isManagerOrAdmin = userRole === 'ADMIN' || userRole === 'MANAGER';
+
   const [clients, setClients] = useState<Client[]>([]);
   const [meta, setMeta] = useState<Meta | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,6 +27,7 @@ export default function ClientsPage() {
   const [page, setPage] = useState(1);
   const [showModal, setShowModal] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const [qualifyingClient, setQualifyingClient] = useState<Client | null>(null);
 
   const fetchClients = useCallback(async () => {
     setLoading(true);
@@ -46,8 +41,6 @@ export default function ClientsPage() {
   }, [page, search]);
 
   useEffect(() => { fetchClients(); }, [fetchClients]);
-
-  // Reset page on search change
   useEffect(() => { setPage(1); }, [search]);
 
   const handleDelete = async (id: string) => {
@@ -62,6 +55,11 @@ export default function ClientsPage() {
     fetchClients();
   };
 
+  const handleQualified = () => {
+    setQualifyingClient(null);
+    fetchClients();
+  };
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -70,9 +68,11 @@ export default function ClientsPage() {
           <h1 className="text-2xl font-bold text-gray-900">Clients</h1>
           <p className="text-gray-500 text-sm mt-0.5">{meta?.total ?? 0} clients au total</p>
         </div>
-        <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
-          <Plus size={16} /> Nouveau client
-        </button>
+        {isManagerOrAdmin && (
+          <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
+            <Plus size={16} /> Nouveau client
+          </button>
+        )}
       </div>
 
       {/* Search */}
@@ -92,8 +92,10 @@ export default function ClientsPage() {
       <ClientsTable
         clients={clients}
         loading={loading}
+        userRole={userRole}
         onEdit={(c) => { setEditingClient(c); setShowModal(true); }}
         onDelete={handleDelete}
+        onQualify={(c) => setQualifyingClient(c)}
       />
 
       {/* Pagination */}
@@ -119,12 +121,22 @@ export default function ClientsPage() {
         </div>
       )}
 
-      {/* Modal */}
+      {/* Edit Modal */}
       {showModal && (
         <ClientFormModal
           client={editingClient}
+          userRole={userRole}
           onClose={() => { setShowModal(false); setEditingClient(null); }}
           onSaved={handleSaved}
+        />
+      )}
+
+      {/* Qualify Modal */}
+      {qualifyingClient && (
+        <QualifyModal
+          client={qualifyingClient}
+          onClose={() => setQualifyingClient(null)}
+          onSaved={handleQualified}
         />
       )}
     </div>

@@ -61,10 +61,10 @@ export default function SalesPage() {
         api.get('/sales/stats'),
       ]);
       if (salesRes.status === 'fulfilled') {
-        setSales(salesRes.value.data.data);
-        setTotal(salesRes.value.data.meta.total);
+        setSales(salesRes.value.data?.data ?? []);
+        setTotal(salesRes.value.data?.meta?.total ?? 0);
       }
-      if (statsRes.status === 'fulfilled') setStats(statsRes.value.data);
+      if (statsRes.status === 'fulfilled') setStats(statsRes.value.data?.data ?? statsRes.value.data);
     } finally { setLoading(false); }
   }, [filters, buildParams]);
 
@@ -130,7 +130,7 @@ export default function SalesPage() {
 
       {/* Filtres */}
       <div className="card p-4">
-        <SaleFilters value={filters} onChange={setFilters} />
+        <SaleFilters value={filters} onChange={setFilters} isAgent={isAgent} />
       </div>
 
       {/* Table */}

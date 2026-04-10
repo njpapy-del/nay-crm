@@ -5,11 +5,14 @@ import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft, Upload, UserPlus, Trash2, UserMinus, Settings2,
   Tag, Plus, Pencil, Check, X, Loader2, GitMerge, Filter, RefreshCw,
+  BarChart2, Users, Wifi, WifiOff, Phone, CalendarCheck,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useAuthStore } from '@/stores/auth.store';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { LeadImportModal } from '@/components/leads/lead-import-modal';
 import { clsx } from 'clsx';
+import { CriteriaBuilder } from '@/components/campaign-criteria/criteria-builder';
 
 interface Lead {
   id: string; firstName: string; lastName: string; email?: string;
@@ -33,6 +36,21 @@ interface Qualification {
   id: string; label: string; code: string; color: string;
   isPositive: boolean; position: number; isActive: boolean;
 }
+interface AgentStat {
+  agentId: string;
+  agent: Agent;
+  status: string;
+  isOnline: boolean;
+  onCurrentCampaign: boolean;
+  loginAt: string | null;
+  stats: { totalCalls: number; rdvCount: number; avgCallDurationSec: number; tauxRdv: number };
+}
+interface CampaignKpi {
+  totalCalls: number; tauxRdv: number; tauxTransformation: number;
+  tauxRefus: number; tauxInjoignable: number; tauxConversion: number; tauxAnnulation: number;
+  rdvTotal: number; rdvValid: number; rdvCancelled: number;
+}
+type Period = 'today' | 'week' | 'month' | 'custom';
 
 const LEAD_STATUS_LABELS: Record<string, string> = {
   NEW: 'Nouveau', CONTACTED: 'Contacté', QUALIFIED: 'Qualifié', CONVERTED: 'Converti', LOST: 'Perdu',
@@ -49,11 +67,29 @@ const DIALER_MODES = [
   { value: 'PREVIEW', label: 'Aperçu' },
 ];
 
-type Tab = 'leads' | 'settings' | 'qualifications';
+type Tab = 'leads' | 'agents' | 'stats' | 'settings' | 'qualifications' | 'criteria';
+
+function periodDates(period: Period, customFrom: string, customTo: string) {
+  const now = new Date();
+  if (period === 'today') {
+    const d = now.toISOString().slice(0, 10);
+    return { dateFrom: d, dateTo: d };
+  }
+  if (period === 'week') {
+    const mon = new Date(now); mon.setDate(now.getDate() - now.getDay() + 1);
+    return { dateFrom: mon.toISOString().slice(0, 10), dateTo: now.toISOString().slice(0, 10) };
+  }
+  if (period === 'month') {
+    return { dateFrom: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`, dateTo: now.toISOString().slice(0, 10) };
+  }
+  return { dateFrom: customFrom, dateTo: customTo };
+}
 
 export default function CampaignDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const { user: currentUser } = useAuthStore();
+  const isManager = currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER';
   const [tab, setTab] = useState<Tab>('leads');
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -71,27 +107,86 @@ export default function CampaignDetailPage() {
   const [recycleResult, setRecycleResult] = useState<{ recycled: number } | null>(null);
   const [recycleMode,   setRecycleMode]   = useState<'not_reached' | 'failed_calls' | 'all'>('all');
 
+  // Agents tab
+  const [agentStats,    setAgentStats]    = useState<AgentStat[]>([]);
+  const [agentPeriod,   setAgentPeriod]   = useState<Period>('month');
+  const [agentCustomFrom, setAgentCustomFrom] = useState('');
+  const [agentCustomTo,   setAgentCustomTo]   = useState('');
+  const [loadingAgents, setLoadingAgents] = useState(false);
+
+  // Stats tab
+  const [kpi,           setKpi]           = useState<CampaignKpi | null>(null);
+  const [byQualif,      setByQualif]      = useState<Record<string, number>>({});
+  const [statsPeriod,   setStatsPeriod]   = useState<Period>('month');
+  const [statsCustomFrom, setStatsCustomFrom] = useState('');
+  const [statsCustomTo,   setStatsCustomTo]   = useState('');
+  const [statsAgentId,  setStatsAgentId]  = useState('');
+  const [loadingStats,  setLoadingStats]  = useState(false);
+
   const fetchData = useCallback(async () => {
-    const [campRes, leadsRes, agentsRes, qualifRes] = await Promise.all([
-      api.get(`/campaigns/${id}`),
-      api.get(`/leads?campaignId=${id}&limit=100`),
-      api.get('/users/agents/list'),
-      api.get(`/campaigns/${id}/qualifications`),
-    ]);
-    const camp = campRes.data?.data ?? campRes.data;
-    setCampaign(camp);
-    setLeads(leadsRes.data?.data?.data ?? leadsRes.data?.data ?? []);
-    setAllAgents(agentsRes.data?.data ?? agentsRes.data ?? []);
-    setQualifications(qualifRes.data?.data ?? qualifRes.data ?? []);
-    setSettings(camp.settings ?? {
-      dialerMode: 'PROGRESSIVE', dialerSpeed: 1, maxSimultaneousCalls: 1,
-      agentRatio: 1.0, maxAttempts: 3, retryDelayMin: 60, wrapUpTimeSec: 30,
-      enableRecording: true, enableDnc: true, customQualifEnabled: false,
-    });
-    setLoading(false);
+    try {
+      const [campRes, leadsRes, agentsRes, qualifRes] = await Promise.allSettled([
+        api.get(`/campaigns/${id}`),
+        api.get(`/leads?campaignId=${id}&limit=100`),
+        isManager ? api.get('/users/agents/list') : Promise.resolve({ data: { data: [] } }),
+        api.get(`/campaigns/${id}/qualifications`),
+      ]);
+      const camp = campRes.status === 'fulfilled' ? (campRes.value.data?.data ?? campRes.value.data) : null;
+      if (camp) {
+        setCampaign(camp);
+        setSettings(camp.settings ?? {
+          dialerMode: 'PROGRESSIVE', dialerSpeed: 1, maxSimultaneousCalls: 1,
+          agentRatio: 1.0, maxAttempts: 3, retryDelayMin: 60, wrapUpTimeSec: 30,
+          enableRecording: true, enableDnc: true, customQualifEnabled: false,
+        });
+      }
+      if (leadsRes.status === 'fulfilled') setLeads(leadsRes.value.data?.data?.data ?? leadsRes.value.data?.data ?? []);
+      if (agentsRes.status === 'fulfilled') setAllAgents(agentsRes.value.data?.data ?? agentsRes.value.data ?? []);
+      if (qualifRes.status === 'fulfilled') setQualifications(qualifRes.value.data?.data ?? qualifRes.value.data ?? []);
+    } catch (e: any) {
+      console.error('[campaign detail]', e?.message);
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
 
+  const fetchAgentStats = useCallback(async () => {
+    setLoadingAgents(true);
+    try {
+      const { dateFrom, dateTo } = periodDates(agentPeriod, agentCustomFrom, agentCustomTo);
+      const params = new URLSearchParams();
+      if (dateFrom) params.set('dateFrom', dateFrom);
+      if (dateTo)   params.set('dateTo', dateTo);
+      const res = await api.get(`/campaigns/${id}/agents/stats?${params}`);
+      setAgentStats(res.data?.data ?? []);
+    } catch (e: any) {
+      console.error('[agent stats]', e?.message);
+    } finally {
+      setLoadingAgents(false); }
+  }, [id, agentPeriod, agentCustomFrom, agentCustomTo]);
+
+  const fetchCampaignKpi = useCallback(async () => {
+    setLoadingStats(true);
+    try {
+      const { dateFrom, dateTo } = periodDates(statsPeriod, statsCustomFrom, statsCustomTo);
+      const params = new URLSearchParams();
+      if (dateFrom)    params.set('dateFrom', dateFrom);
+      if (dateTo)      params.set('dateTo', dateTo);
+      if (statsAgentId) params.set('agentId', statsAgentId);
+      const res = await api.get(`/campaigns/${id}/stats/kpi?${params}`);
+      const d = res.data?.data ?? res.data;
+      setKpi(d.kpi ?? null);
+      setByQualif(d.byQualification ?? {});
+    } catch (e: any) {
+      console.error('[campaign kpi]', e?.message);
+    } finally {
+      setLoadingStats(false);
+    }
+  }, [id, statsPeriod, statsCustomFrom, statsCustomTo, statsAgentId]);
+
   useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { if (tab === 'agents') fetchAgentStats(); }, [tab, fetchAgentStats]);
+  useEffect(() => { if (tab === 'stats')  fetchCampaignKpi(); }, [tab, fetchCampaignKpi]);
 
   const updateLeadStatus = async (leadId: string, status: string) => {
     await api.patch(`/leads/${leadId}`, { status });
@@ -166,12 +261,16 @@ export default function CampaignDetailPage() {
           {campaign.description && <p className="text-gray-500 text-sm mt-1">{campaign.description}</p>}
         </div>
         <div className="flex gap-2">
-          <button onClick={() => setShowAgentPanel(true)} className="flex items-center gap-1.5 btn-secondary text-sm">
-            <UserPlus size={15} /> Agents
-          </button>
-          <button onClick={() => setShowImport(true)} className="flex items-center gap-1.5 btn-primary text-sm">
-            <Upload size={15} /> Import CSV
-          </button>
+          {isManager && (
+            <>
+              <button onClick={() => setShowAgentPanel(true)} className="flex items-center gap-1.5 btn-secondary text-sm">
+                <UserPlus size={15} /> Agents
+              </button>
+              <button onClick={() => setShowImport(true)} className="flex items-center gap-1.5 btn-primary text-sm">
+                <Upload size={15} /> Import CSV
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -191,14 +290,19 @@ export default function CampaignDetailPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-200 gap-1">
+      <div className="flex border-b border-gray-200 gap-1 overflow-x-auto">
         {([
-          { key: 'leads', label: 'Leads', icon: null },
-          { key: 'settings', label: 'Paramètres dialer', icon: <Settings2 size={14} /> },
-          { key: 'qualifications', label: 'Qualifications', icon: <Tag size={14} /> },
+          { key: 'leads',          label: 'Leads',             icon: null },
+          { key: 'agents',         label: 'Agents',            icon: <Users size={14} /> },
+          { key: 'stats',          label: 'Stats & KPI',       icon: <BarChart2 size={14} /> },
+          ...(isManager ? [
+            { key: 'settings',     label: 'Paramètres dialer', icon: <Settings2 size={14} /> },
+            { key: 'qualifications',label: 'Qualifications',   icon: <Tag size={14} /> },
+            { key: 'criteria',     label: 'Critères RDV',      icon: <Filter size={14} /> },
+          ] : []),
         ] as { key: Tab; label: string; icon: React.ReactNode }[]).map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)}
-            className={clsx('flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
+            className={clsx('flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap',
               tab === t.key
                 ? 'border-primary-600 text-primary-700'
                 : 'border-transparent text-gray-500 hover:text-gray-700')}>
@@ -230,64 +334,48 @@ export default function CampaignDetailPage() {
               </select>
             </div>
 
-            {/* Dédoublonnage */}
-            <button
-              onClick={deduplicate}
-              disabled={deduping || leads.length === 0}
-              className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-orange-200 text-orange-600 rounded-lg hover:bg-orange-50 disabled:opacity-40 transition-colors"
-            >
-              {deduping
-                ? <Loader2 size={13} className="animate-spin" />
-                : <GitMerge size={13} />}
-              Dédoublonner
-            </button>
-
-            {/* Résultat dédoublonnage */}
-            {dedupeResult && (
-              <span className={clsx(
-                'text-xs font-medium px-2 py-1 rounded-full',
-                dedupeResult.removed > 0
-                  ? 'bg-orange-100 text-orange-700'
-                  : 'bg-green-100 text-green-700',
-              )}>
-                {dedupeResult.removed > 0
-                  ? `${dedupeResult.removed} doublon${dedupeResult.removed > 1 ? 's' : ''} supprimé${dedupeResult.removed > 1 ? 's' : ''}`
-                  : 'Aucun doublon détecté'}
-              </span>
+            {/* Dédoublonnage + Recyclage — managers uniquement */}
+            {isManager && (
+              <>
+                <button
+                  onClick={deduplicate}
+                  disabled={deduping || leads.length === 0}
+                  className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-orange-200 text-orange-600 rounded-lg hover:bg-orange-50 disabled:opacity-40 transition-colors"
+                >
+                  {deduping ? <Loader2 size={13} className="animate-spin" /> : <GitMerge size={13} />}
+                  Dédoublonner
+                </button>
+                {dedupeResult && (
+                  <span className={clsx('text-xs font-medium px-2 py-1 rounded-full',
+                    dedupeResult.removed > 0 ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700')}>
+                    {dedupeResult.removed > 0
+                      ? `${dedupeResult.removed} doublon${dedupeResult.removed > 1 ? 's' : ''} supprimé${dedupeResult.removed > 1 ? 's' : ''}`
+                      : 'Aucun doublon détecté'}
+                  </span>
+                )}
+                <div className="flex items-center gap-1.5 border-l border-gray-200 pl-3">
+                  <select value={recycleMode} onChange={(e) => setRecycleMode(e.target.value as typeof recycleMode)}
+                    className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-300 bg-white">
+                    <option value="not_reached">Non joints</option>
+                    <option value="failed_calls">Appels échoués</option>
+                    <option value="all">Tous (non joints + échoués)</option>
+                  </select>
+                  <button onClick={recycle} disabled={recycling || leads.length === 0}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-blue-200 text-blue-600 rounded-lg hover:bg-blue-50 disabled:opacity-40 transition-colors">
+                    {recycling ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                    Recycler
+                  </button>
+                  {recycleResult && (
+                    <span className={clsx('text-xs font-medium px-2 py-1 rounded-full',
+                      recycleResult.recycled > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600')}>
+                      {recycleResult.recycled > 0
+                        ? `${recycleResult.recycled} lead${recycleResult.recycled > 1 ? 's' : ''} recyclé${recycleResult.recycled > 1 ? 's' : ''}`
+                        : 'Aucun lead à recycler'}
+                    </span>
+                  )}
+                </div>
+              </>
             )}
-
-            {/* Recyclage */}
-            <div className="flex items-center gap-1.5 border-l border-gray-200 pl-3">
-              <select
-                value={recycleMode}
-                onChange={(e) => setRecycleMode(e.target.value as typeof recycleMode)}
-                className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-300 bg-white"
-              >
-                <option value="not_reached">Non joints</option>
-                <option value="failed_calls">Appels échoués</option>
-                <option value="all">Tous (non joints + échoués)</option>
-              </select>
-              <button
-                onClick={recycle}
-                disabled={recycling || leads.length === 0}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-blue-200 text-blue-600 rounded-lg hover:bg-blue-50 disabled:opacity-40 transition-colors"
-              >
-                {recycling
-                  ? <Loader2 size={13} className="animate-spin" />
-                  : <RefreshCw size={13} />}
-                Recycler
-              </button>
-              {recycleResult && (
-                <span className={clsx(
-                  'text-xs font-medium px-2 py-1 rounded-full',
-                  recycleResult.recycled > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600',
-                )}>
-                  {recycleResult.recycled > 0
-                    ? `${recycleResult.recycled} lead${recycleResult.recycled > 1 ? 's' : ''} recyclé${recycleResult.recycled > 1 ? 's' : ''}`
-                    : 'Aucun lead à recycler'}
-                </span>
-              )}
-            </div>
           </div>
 
           {leads.filter((l) => !leadFilter || l.status === leadFilter).length === 0 ? (
@@ -299,7 +387,7 @@ export default function CampaignDetailPage() {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
-                    {['Nom', 'Email', 'Téléphone', 'Entreprise', 'Statut', 'Agent', ''].map((h) => (
+                    {['Nom', 'Email', 'Téléphone', 'Entreprise', 'Statut', 'Agent', ...(isManager ? [''] : [])].map((h) => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">{h}</th>
                     ))}
                   </tr>
@@ -312,27 +400,263 @@ export default function CampaignDetailPage() {
                       <td className="px-4 py-3 text-gray-500">{lead.phone ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-500">{lead.company ?? '—'}</td>
                       <td className="px-4 py-3">
-                        <select value={lead.status}
-                          onChange={(e) => updateLeadStatus(lead.id, e.target.value)}
-                          className={clsx('text-xs font-medium px-2 py-1 rounded-full border-0 cursor-pointer', LEAD_STATUS_COLORS[lead.status])}>
-                          {Object.entries(LEAD_STATUS_LABELS).map(([v, l]) => (
-                            <option key={v} value={v}>{l}</option>
-                          ))}
-                        </select>
+                        {isManager ? (
+                          <select value={lead.status}
+                            onChange={(e) => updateLeadStatus(lead.id, e.target.value)}
+                            className={clsx('text-xs font-medium px-2 py-1 rounded-full border-0 cursor-pointer', LEAD_STATUS_COLORS[lead.status])}>
+                            {Object.entries(LEAD_STATUS_LABELS).map(([v, l]) => (
+                              <option key={v} value={v}>{l}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className={clsx('text-xs font-medium px-2 py-1 rounded-full', LEAD_STATUS_COLORS[lead.status])}>
+                            {LEAD_STATUS_LABELS[lead.status]}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-500">
                         {lead.assignedTo ? `${lead.assignedTo.firstName} ${lead.assignedTo.lastName}` : '—'}
                       </td>
-                      <td className="px-4 py-3">
-                        <button onClick={() => removeLead(lead.id)} className="text-gray-300 hover:text-red-500">
-                          <Trash2 size={14} />
-                        </button>
-                      </td>
+                      {isManager && (
+                        <td className="px-4 py-3">
+                          <button onClick={() => removeLead(lead.id)} className="text-gray-300 hover:text-red-500">
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab: Agents */}
+      {tab === 'agents' && (
+        <div className="space-y-4">
+          {/* Filtres période */}
+          <div className="card p-4 flex flex-wrap items-center gap-3">
+            <span className="text-sm font-medium text-gray-700">Période :</span>
+            {(['today', 'week', 'month', 'custom'] as Period[]).map((p) => (
+              <button key={p} onClick={() => setAgentPeriod(p)}
+                className={clsx('px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                  agentPeriod === p ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
+                {p === 'today' ? "Aujourd'hui" : p === 'week' ? 'Cette semaine' : p === 'month' ? 'Ce mois' : 'Personnalisé'}
+              </button>
+            ))}
+            {agentPeriod === 'custom' && (
+              <>
+                <input type="date" value={agentCustomFrom} onChange={(e) => setAgentCustomFrom(e.target.value)}
+                  className="input-field text-xs py-1.5" />
+                <input type="date" value={agentCustomTo} onChange={(e) => setAgentCustomTo(e.target.value)}
+                  className="input-field text-xs py-1.5" />
+              </>
+            )}
+            <button onClick={fetchAgentStats} disabled={loadingAgents}
+              className="ml-auto flex items-center gap-1.5 btn-secondary text-xs">
+              {loadingAgents ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+              Actualiser
+            </button>
+          </div>
+
+          {/* Tableau agents */}
+          <div className="card overflow-hidden">
+            {loadingAgents ? (
+              <div className="p-8 text-center text-gray-400"><Loader2 size={20} className="animate-spin mx-auto" /></div>
+            ) : agentStats.length === 0 ? (
+              <div className="p-8 text-center text-gray-400">Aucun agent assigné à cette campagne</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      {['Agent', 'Statut', 'Appels', 'RDV', 'Durée moy.', 'Taux RDV'].map((h) => (
+                        <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {agentStats.map((a) => (
+                      <tr key={a.agentId} className="hover:bg-gray-50">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-full bg-primary-100 text-primary-700 text-xs flex items-center justify-center font-medium shrink-0">
+                              {a.agent.firstName[0]}{a.agent.lastName[0]}
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-900">{a.agent.firstName} {a.agent.lastName}</p>
+                              <p className="text-xs text-gray-400">{a.agent.email}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={clsx('inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full',
+                            a.isOnline
+                              ? a.status === 'IN_CALL' ? 'bg-red-100 text-red-700'
+                              : a.status === 'PAUSED'  ? 'bg-yellow-100 text-yellow-700'
+                              : 'bg-green-100 text-green-700'
+                              : 'bg-gray-100 text-gray-500')}>
+                            {a.isOnline
+                              ? <Wifi size={11} />
+                              : <WifiOff size={11} />}
+                            {a.isOnline
+                              ? a.status === 'IN_CALL'   ? 'En appel'
+                              : a.status === 'PAUSED'    ? 'En pause'
+                              : a.status === 'WRAP_UP'   ? 'Post-appel'
+                              : 'Disponible'
+                              : 'Hors ligne'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="flex items-center gap-1 text-gray-900 font-medium">
+                            <Phone size={13} className="text-gray-400" />{a.stats.totalCalls}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="flex items-center gap-1 text-gray-900 font-medium">
+                            <CalendarCheck size={13} className="text-green-500" />{a.stats.rdvCount}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-gray-500 text-xs">
+                          {a.stats.avgCallDurationSec > 0
+                            ? `${Math.floor(a.stats.avgCallDurationSec / 60)}m${String(a.stats.avgCallDurationSec % 60).padStart(2, '0')}s`
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 max-w-20 bg-gray-100 rounded-full h-1.5">
+                              <div className="bg-primary-500 h-1.5 rounded-full"
+                                style={{ width: `${Math.min(a.stats.tauxRdv, 100)}%` }} />
+                            </div>
+                            <span className="text-xs font-medium text-gray-700 w-10 text-right">{a.stats.tauxRdv}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {agentStats.length > 1 && (
+                    <tfoot className="bg-gray-50 border-t border-gray-200">
+                      <tr>
+                        <td className="px-4 py-2 text-xs font-semibold text-gray-600" colSpan={2}>Total</td>
+                        <td className="px-4 py-2 text-xs font-semibold text-gray-800">
+                          {agentStats.reduce((s, a) => s + a.stats.totalCalls, 0)}
+                        </td>
+                        <td className="px-4 py-2 text-xs font-semibold text-gray-800">
+                          {agentStats.reduce((s, a) => s + a.stats.rdvCount, 0)}
+                        </td>
+                        <td colSpan={2} />
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Tab: Stats & KPI */}
+      {tab === 'stats' && (
+        <div className="space-y-4">
+          {/* Filtres */}
+          <div className="card p-4 flex flex-wrap items-center gap-3">
+            <span className="text-sm font-medium text-gray-700">Période :</span>
+            {(['today', 'week', 'month', 'custom'] as Period[]).map((p) => (
+              <button key={p} onClick={() => setStatsPeriod(p)}
+                className={clsx('px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                  statsPeriod === p ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
+                {p === 'today' ? "Aujourd'hui" : p === 'week' ? 'Cette semaine' : p === 'month' ? 'Ce mois' : 'Personnalisé'}
+              </button>
+            ))}
+            {statsPeriod === 'custom' && (
+              <>
+                <input type="date" value={statsCustomFrom} onChange={(e) => setStatsCustomFrom(e.target.value)}
+                  className="input-field text-xs py-1.5" />
+                <input type="date" value={statsCustomTo} onChange={(e) => setStatsCustomTo(e.target.value)}
+                  className="input-field text-xs py-1.5" />
+              </>
+            )}
+            {campaign.agents.length > 0 && (
+              <select value={statsAgentId} onChange={(e) => setStatsAgentId(e.target.value)}
+                className="input-field text-xs py-1.5 ml-2">
+                <option value="">Tous les agents</option>
+                {campaign.agents.map(({ agentId, agent }) => (
+                  <option key={agentId} value={agentId}>{agent.firstName} {agent.lastName}</option>
+                ))}
+              </select>
+            )}
+            <button onClick={fetchCampaignKpi} disabled={loadingStats}
+              className="ml-auto flex items-center gap-1.5 btn-secondary text-xs">
+              {loadingStats ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+              Actualiser
+            </button>
+          </div>
+
+          {loadingStats ? (
+            <div className="p-8 text-center text-gray-400"><Loader2 size={20} className="animate-spin mx-auto" /></div>
+          ) : kpi ? (
+            <>
+              {/* KPI cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                {[
+                  { label: 'Total appels',    val: kpi.totalCalls,         unit: '',  color: 'text-gray-800' },
+                  { label: 'Taux RDV',        val: kpi.tauxRdv,            unit: '%', color: 'text-primary-700' },
+                  { label: 'Transformation',  val: kpi.tauxTransformation, unit: '%', color: 'text-green-700' },
+                  { label: 'Taux refus',      val: kpi.tauxRefus,          unit: '%', color: 'text-red-600' },
+                  { label: 'Injoignable',     val: kpi.tauxInjoignable,    unit: '%', color: 'text-yellow-700' },
+                  { label: 'Annulation',      val: kpi.tauxAnnulation,     unit: '%', color: 'text-orange-600' },
+                ].map((k) => (
+                  <div key={k.label} className="card p-4 text-center">
+                    <p className={clsx('text-2xl font-bold', k.color)}>{k.val}{k.unit}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{k.label}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* RDV summary */}
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { label: 'RDV pris',      val: kpi.rdvTotal,     color: 'bg-primary-50 text-primary-800' },
+                  { label: 'RDV validés',   val: kpi.rdvValid,     color: 'bg-green-50 text-green-800' },
+                  { label: 'RDV annulés',   val: kpi.rdvCancelled, color: 'bg-red-50 text-red-800' },
+                ].map((r) => (
+                  <div key={r.label} className={clsx('card p-4 text-center rounded-xl', r.color)}>
+                    <p className="text-3xl font-bold">{r.val}</p>
+                    <p className="text-xs mt-0.5 font-medium">{r.label}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Qualification breakdown */}
+              {Object.keys(byQualif).length > 0 && (
+                <div className="card p-5 space-y-3">
+                  <h3 className="font-semibold text-gray-900 text-sm">Répartition par qualification</h3>
+                  <div className="space-y-2">
+                    {Object.entries(byQualif)
+                      .sort(([, a], [, b]) => b - a)
+                      .map(([qualif, count]) => {
+                        const pct = kpi.totalCalls > 0 ? (count / kpi.totalCalls) * 100 : 0;
+                        return (
+                          <div key={qualif} className="flex items-center gap-3">
+                            <span className="w-36 text-xs text-gray-600 font-medium truncate">{qualif}</span>
+                            <div className="flex-1 bg-gray-100 rounded-full h-2">
+                              <div className="bg-primary-400 h-2 rounded-full transition-all"
+                                style={{ width: `${Math.min(pct, 100)}%` }} />
+                            </div>
+                            <span className="text-xs text-gray-500 w-16 text-right">
+                              {count} <span className="text-gray-400">({pct.toFixed(1)}%)</span>
+                            </span>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="card p-8 text-center text-gray-400">Aucune donnée sur la période sélectionnée</div>
           )}
         </div>
       )}
@@ -424,8 +748,13 @@ export default function CampaignDetailPage() {
         <QualificationsPanel campaignId={id} qualifications={qualifications} onRefresh={fetchData} />
       )}
 
+      {/* Tab: Critères RDV */}
+      {tab === 'criteria' && (
+        <CriteriaBuilder campaignId={id} />
+      )}
+
       {/* Agent panel */}
-      {showAgentPanel && (
+      {isManager && showAgentPanel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 space-y-4">
             <h2 className="text-lg font-semibold text-gray-900">Agents assignés</h2>
