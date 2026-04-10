@@ -33,7 +33,22 @@ export class SupervisionController {
   }
 
   @Get('client-card/:callId')
+  @Roles('ADMIN', 'MANAGER')
   getClientCard(@Param('callId') callId: string) {
     return this.service.getClientCard(callId);
+  }
+
+  @Get('logs')
+  @Roles('ADMIN', 'MANAGER')
+  getLogs(@CurrentUser() user: any) {
+    return (this.service as any).prisma.callSupervisionLog.findMany({
+      where: { tenantId: user.tenantId },
+      orderBy: { startedAt: 'desc' },
+      take: 100,
+      include: {
+        supervisor: { select: { id: true, firstName: true, lastName: true } },
+        agent:      { select: { id: true, firstName: true, lastName: true } },
+      },
+    });
   }
 }
