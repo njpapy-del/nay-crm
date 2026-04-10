@@ -7,7 +7,7 @@ interface AuthUser {
   email: string;
   firstName: string;
   lastName: string;
-  role: 'ADMIN' | 'MANAGER' | 'AGENT';
+  role: 'ADMIN' | 'MANAGER' | 'AGENT' | 'QUALITY' | 'QUALITY_SUPERVISOR' | 'HR';
   tenantId: string;
 }
 

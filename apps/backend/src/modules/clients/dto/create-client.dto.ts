@@ -26,6 +26,16 @@ export class CreateClientDto {
   @IsString()
   company?: string;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  postalCode?: string;
+
   @ApiPropertyOptional({ enum: ClientStatus })
   @IsOptional()
   @IsEnum(ClientStatus)

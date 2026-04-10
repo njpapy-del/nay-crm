@@ -6,7 +6,7 @@ import { AgentStateService } from './agent-state.service';
 import { DialerService } from './dialer.service';
 import { MonitoringService } from './monitoring.service';
 import { OriginateCallDto, UpdateCallDto } from './dto/originate-call.dto';
-import { AgentLoginDto, AgentPauseDto, CallDispositionDto } from './dto/agent-state.dto';
+import { AgentLoginDto, AgentPauseDto, AgentCampaignDto, CallDispositionDto } from './dto/agent-state.dto';
 import { StartDialerDto } from './dto/dialer.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -85,7 +85,13 @@ export class CallsController {
   @Post('agent/login')
   @Roles('AGENT', 'MANAGER', 'ADMIN')
   agentLogin(@CurrentUser() user: any, @Body() dto: AgentLoginDto) {
-    return this.agentStateSvc.login(user.tenantId, user.id, dto.extension);
+    return this.agentStateSvc.login(user.tenantId, user.id, dto.extension, dto.campaignId);
+  }
+
+  @Patch('agent/campaign')
+  @Roles('AGENT', 'MANAGER', 'ADMIN')
+  agentCampaign(@CurrentUser() user: any, @Body() dto: AgentCampaignDto) {
+    return this.agentStateSvc.setCampaign(user.id, dto.campaignId ?? null);
   }
 
   @Post('agent/logout')
@@ -112,6 +118,13 @@ export class CallsController {
     return this.agentStateSvc.getByAgent(user.id);
   }
 
+  @Get('agent/pending-qualification')
+  @Roles('AGENT', 'MANAGER', 'ADMIN')
+  async getPendingQualification(@CurrentUser() user: any) {
+    const callLogId = await this.agentStateSvc.getPendingQualification(user.id);
+    return { pendingQualification: callLogId !== null, callLogId };
+  }
+
   // ── Dialer ────────────────────────────────────────────────
 
   @Post('dialer/start')
@@ -130,8 +143,8 @@ export class CallsController {
 
   @Get('dialer/sessions')
   @Roles('ADMIN', 'MANAGER')
-  dialerSessions() {
-    return { data: this.dialer.getActiveSessions() };
+  async dialerSessions() {
+    return { data: await this.dialer.getActiveSessions() };
   }
 
   // ── Monitoring ────────────────────────────────────────────

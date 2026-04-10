@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   X, Phone, Calendar, Clock, CheckCircle2, Loader2,
-  ChevronRight, MessageSquare, User, Briefcase,
+  ChevronRight, MessageSquare, User, Briefcase, UserPlus,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { clsx } from 'clsx';
@@ -40,21 +40,30 @@ interface Props {
   callLogId?: string;
   onClose: () => void;
   onNextCall?: () => void;
+  /** Mode obligatoire : empêche la fermeture sans qualification */
+  mandatory?: boolean;
 }
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
 
-export function PostCallModal({ callId, callLogId, onClose, onNextCall }: Props) {
+export function PostCallModal({ callId, callLogId, onClose, onNextCall, mandatory = false }: Props) {
   const [context, setContext] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Qualification | null>(null);
   const [rdvAt, setRdvAt] = useState('');
   const [callbackAt, setCallbackAt] = useState('');
   const [notes, setNotes] = useState('');
+  const [motifRefus, setMotifRefus] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [tab, setTab] = useState<'qualif' | 'script'>('qualif');
   const [elapsed, setElapsed] = useState(0);
+
+  // Fiche client (pour qualification RDV)
+  const [clientForm, setClientForm] = useState({
+    firstName: '', lastName: '', phone: '', email: '',
+    company: '', address: '', postalCode: '', clientNotes: '',
+  });
 
   // Wrap-up timer
   useEffect(() => {
@@ -66,15 +75,34 @@ export function PostCallModal({ callId, callLogId, onClose, onNextCall }: Props)
   useEffect(() => {
     if (!callId) { setLoading(false); return; }
     api.get(`/qualifications/context/${callId}`)
-      .then(r => setContext(r.data?.data ?? r.data))
+      .then(r => {
+        const ctx = r.data?.data ?? r.data;
+        setContext(ctx);
+        // Pré-remplir fiche client depuis le contact de l'appel
+        const c = ctx?.callLog?.call?.client ?? ctx?.callLog?.call?.lead ?? null;
+        if (c) {
+          setClientForm(prev => ({
+            ...prev,
+            firstName:   c.firstName ?? '',
+            lastName:    c.lastName  ?? '',
+            phone:       c.phone     ?? '',
+            email:       c.email     ?? '',
+            company:     c.company   ?? '',
+            address:     c.address   ?? '',
+            postalCode:  c.postalCode ?? '',
+          }));
+        }
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [callId]);
 
   const meta = selected ? QUALIFICATIONS[selected] : null;
+  const needsMotif = selected === 'REFUSAL' || selected === 'NRP';
 
   const canSave = selected !== null
-    && (meta?.needsDate ? (meta.dateField === 'rdvAt' ? !!rdvAt : !!callbackAt) : true);
+    && (meta?.needsDate ? (meta.dateField === 'rdvAt' ? !!rdvAt : !!callbackAt) : true)
+    && (needsMotif ? !!motifRefus.trim() : true);
 
   const save = useCallback(async () => {
     if (!selected || !canSave) return;
@@ -88,12 +116,25 @@ export function PostCallModal({ callId, callLogId, onClose, onNextCall }: Props)
         agentNotes: notes || undefined,
         rdvAt: rdvAt || undefined,
         callbackAt: callbackAt || undefined,
+        motifRefus: motifRefus || undefined,
+        postCallDurationSec: elapsed,
         campaignId: log?.campaignId,
       };
+      // Inclure la fiche client si qualification RDV
+      if (selected === 'APPOINTMENT') {
+        payload.clientFirstName  = clientForm.firstName  || undefined;
+        payload.clientLastName   = clientForm.lastName   || undefined;
+        payload.clientPhone      = clientForm.phone      || undefined;
+        payload.clientEmail      = clientForm.email      || undefined;
+        payload.clientCompany    = clientForm.company    || undefined;
+        payload.clientAddress    = clientForm.address    || undefined;
+        payload.clientPostalCode = clientForm.postalCode || undefined;
+        payload.clientNotes      = clientForm.clientNotes || undefined;
+      }
       await api.post('/qualifications', payload);
       setSaved(true);
     } finally { setSaving(false); }
-  }, [selected, canSave, callId, callLogId, context, notes, rdvAt, callbackAt]);
+  }, [selected, canSave, callId, callLogId, context, notes, rdvAt, callbackAt, motifRefus, elapsed]);
 
   const fmtElapsed = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
@@ -105,8 +146,11 @@ export function PostCallModal({ callId, callLogId, onClose, onNextCall }: Props)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      {/* Backdrop — cliquable seulement si non obligatoire */}
+      <div
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        onClick={mandatory ? undefined : onClose}
+      />
 
       {/* Panel */}
       <div className="relative z-10 w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
@@ -127,14 +171,21 @@ export function PostCallModal({ callId, callLogId, onClose, onNextCall }: Props)
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {mandatory && !saved && (
+              <span className="text-xs bg-red-500/80 text-white px-2.5 py-1 rounded-full font-medium">
+                Qualification obligatoire
+              </span>
+            )}
             {saved && (
               <span className="flex items-center gap-1 text-xs bg-green-500 text-white px-2.5 py-1 rounded-full font-medium">
                 <CheckCircle2 size={12} /> Qualifié
               </span>
             )}
-            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/20 transition-colors">
-              <X size={18} />
-            </button>
+            {!mandatory && (
+              <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/20 transition-colors">
+                <X size={18} />
+              </button>
+            )}
           </div>
         </div>
 
@@ -202,16 +253,76 @@ export function PostCallModal({ callId, callLogId, onClose, onNextCall }: Props)
                 </div>
               </div>
 
-              {/* Date picker for RDV */}
+              {/* Date picker + fiche client pour RDV */}
               {selected === 'APPOINTMENT' && (
-                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                  <label className="flex items-center gap-2 text-sm font-semibold text-blue-800 mb-2">
-                    <Calendar size={15} /> Date et heure du RDV *
-                  </label>
-                  <input type="datetime-local" className="input w-full"
-                    value={rdvAt} onChange={e => setRdvAt(e.target.value)}
-                    min={new Date().toISOString().slice(0, 16)} />
-                </div>
+                <>
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                    <label className="flex items-center gap-2 text-sm font-semibold text-blue-800 mb-2">
+                      <Calendar size={15} /> Date et heure du RDV *
+                    </label>
+                    <input type="datetime-local" className="input w-full"
+                      value={rdvAt} onChange={e => setRdvAt(e.target.value)}
+                      min={new Date().toISOString().slice(0, 16)} />
+                  </div>
+
+                  {/* Fiche client */}
+                  <div className="border border-blue-200 rounded-xl overflow-hidden">
+                    <div className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold">
+                      <UserPlus size={15} /> Fiche client — créée automatiquement à la validation
+                    </div>
+                    <div className="p-4 space-y-3 bg-blue-50/40">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 mb-1 block">Prénom</label>
+                          <input className="input w-full text-sm" value={clientForm.firstName}
+                            onChange={e => setClientForm(p => ({ ...p, firstName: e.target.value }))}
+                            placeholder="Prénom" />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 mb-1 block">Nom</label>
+                          <input className="input w-full text-sm" value={clientForm.lastName}
+                            onChange={e => setClientForm(p => ({ ...p, lastName: e.target.value }))}
+                            placeholder="Nom" />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 mb-1 block">Téléphone</label>
+                          <input className="input w-full text-sm" value={clientForm.phone}
+                            onChange={e => setClientForm(p => ({ ...p, phone: e.target.value }))}
+                            placeholder="+33..." />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 mb-1 block">Email</label>
+                          <input className="input w-full text-sm" type="email" value={clientForm.email}
+                            onChange={e => setClientForm(p => ({ ...p, email: e.target.value }))}
+                            placeholder="email@..." />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 mb-1 block">Adresse</label>
+                          <input className="input w-full text-sm" value={clientForm.address}
+                            onChange={e => setClientForm(p => ({ ...p, address: e.target.value }))}
+                            placeholder="12 rue de la Paix" />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 mb-1 block">Code postal</label>
+                          <input className="input w-full text-sm" value={clientForm.postalCode}
+                            onChange={e => setClientForm(p => ({ ...p, postalCode: e.target.value }))}
+                            placeholder="75001" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-600 mb-1 block">Commentaires</label>
+                        <textarea className="input w-full text-sm resize-none" rows={2}
+                          value={clientForm.clientNotes}
+                          onChange={e => setClientForm(p => ({ ...p, clientNotes: e.target.value }))}
+                          placeholder="Notes sur le client..." />
+                      </div>
+                    </div>
+                  </div>
+                </>
               )}
 
               {/* Date picker for Rappel */}
@@ -223,6 +334,21 @@ export function PostCallModal({ callId, callLogId, onClose, onNextCall }: Props)
                   <input type="datetime-local" className="input w-full"
                     value={callbackAt} onChange={e => setCallbackAt(e.target.value)}
                     min={new Date().toISOString().slice(0, 16)} />
+                </div>
+              )}
+
+              {/* Motif refus */}
+              {needsMotif && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-red-800 mb-2">
+                    <MessageSquare size={15} /> Motif du refus *
+                  </label>
+                  <input
+                    className="input w-full text-sm"
+                    value={motifRefus}
+                    onChange={e => setMotifRefus(e.target.value)}
+                    placeholder="Ex: Pas le bon interlocuteur, déjà équipé…"
+                  />
                 </div>
               )}
 
@@ -250,11 +376,18 @@ export function PostCallModal({ callId, callLogId, onClose, onNextCall }: Props)
 
         {/* Footer */}
         <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50 shrink-0">
-          <button onClick={onClose} className="btn-secondary text-sm">
-            Fermer
-          </button>
+          {!mandatory && (
+            <button onClick={onClose} className="btn-secondary text-sm">
+              Fermer
+            </button>
+          )}
+          {mandatory && !saved && (
+            <p className="text-xs text-red-500 font-medium flex items-center gap-1">
+              ⚠️ Qualification requise avant le prochain appel
+            </p>
+          )}
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 ml-auto">
             {!saved ? (
               <button onClick={save} disabled={!canSave || saving}
                 className={clsx(
@@ -264,7 +397,7 @@ export function PostCallModal({ callId, callLogId, onClose, onNextCall }: Props)
                     : 'bg-gray-100 text-gray-400 cursor-not-allowed',
                 )}>
                 {saving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
-                Valider la qualification
+                {mandatory ? 'Valider & passer au suivant' : 'Valider la qualification'}
               </button>
             ) : onNextCall ? (
               <button onClick={onNextCall}

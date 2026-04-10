@@ -29,9 +29,9 @@ export class RecordingsController {
     return this.service.findOne(user.tenantId, id);
   }
 
-  /** Stream audio pour player navigateur */
+  /** Stream audio pour player navigateur — tous les rôles autorisés */
   @Get(':id/stream')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'MANAGER', 'AGENT', 'QUALITY', 'QUALITY_SUPERVISOR')
   async stream(
     @CurrentUser() user: any,
     @Param('id') id: string,
@@ -68,7 +68,7 @@ export class RecordingsController {
     }
   }
 
-  /** Téléchargement direct */
+  /** Téléchargement direct — ADMIN/MANAGER uniquement */
   @Get(':id/download')
   @Roles('ADMIN', 'MANAGER')
   async download(

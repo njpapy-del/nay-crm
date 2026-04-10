@@ -1,9 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Calendar, List } from 'lucide-react';
+import Link from 'next/link';
+import { ChevronLeft, ChevronRight, Plus, BarChart2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { clsx } from 'clsx';
+import { useAuthStore } from '@/stores/auth.store';
 import { AppointmentModal } from '@/components/agenda/appointment-modal';
 import { DispatchPanel } from '@/components/agenda/dispatch-panel';
 
@@ -31,6 +33,8 @@ function sameDay(a: Date, b: Date) { return a.getFullYear() === b.getFullYear() 
 function weekDays(baseDate: Date) { const d = new Date(baseDate); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return Array.from({ length: 7 }, (_, i) => { const x = new Date(d); x.setDate(d.getDate() + i); return x; }); }
 
 export default function AgendaPage() {
+  const { user } = useAuthStore();
+  const isManager = user?.role === 'ADMIN' || user?.role === 'MANAGER';
   const now = new Date();
   const [cursor,   setCursor]   = useState(new Date(now.getFullYear(), now.getMonth(), 1));
   const [view,     setView]     = useState<ViewMode>('month');
@@ -38,7 +42,7 @@ export default function AgendaPage() {
   const [selected, setSelected] = useState<Appointment | null>(null);
   const [showNew,  setShowNew]  = useState(false);
   const [newDate,  setNewDate]  = useState('');
-  const [filterAgent, setFilterAgent] = useState('');
+  const [filterAgent] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
 
   const { from, to } = useMemo(() => {
@@ -51,8 +55,10 @@ export default function AgendaPage() {
     const params = new URLSearchParams({ from, to, limit: '500' });
     if (filterAgent)  params.set('agentId', filterAgent);
     if (filterStatus) params.set('status',  filterStatus);
-    const res = await api.get(`/agenda?${params}`);
-    setAppts(res.data.data);
+    try {
+      const res = await api.get(`/agenda?${params}`);
+      setAppts(res.data?.data ?? res.data ?? []);
+    } catch (e: any) { console.error('[agenda]', e?.message); }
   }, [from, to, filterAgent, filterStatus]);
 
   useEffect(() => { fetchAppts(); }, [fetchAppts]);
@@ -159,6 +165,11 @@ export default function AgendaPage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold text-gray-900">Agenda</h1>
+          {isManager && (
+            <Link href="/agenda/kpi" className="flex items-center gap-1.5 text-xs font-medium text-primary-600 hover:underline ml-2">
+              <BarChart2 size={13} /> KPI RDV
+            </Link>
+          )}
           <div className="flex items-center gap-1 bg-gray-100 p-0.5 rounded-lg">
             {(['month', 'week', 'day'] as ViewMode[]).map((v) => (
               <button key={v} onClick={() => setView(v)}
@@ -194,7 +205,7 @@ export default function AgendaPage() {
 
         {/* Panneau latéral */}
         <div className="space-y-4">
-          <DispatchPanel from={from} to={to} appointmentId={selected?.id} onDispatched={() => { fetchAppts(); setSelected(null); }} />
+          {isManager && <DispatchPanel from={from} to={to} appointmentId={selected?.id} onDispatched={() => { fetchAppts(); setSelected(null); }} />}
 
           {selected && (
             <div className="card p-4 space-y-2">

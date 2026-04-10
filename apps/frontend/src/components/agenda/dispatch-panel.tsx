@@ -21,7 +21,8 @@ export function DispatchPanel({ from, to, appointmentId, onDispatched }: Props) 
       const res = await api.get(`/agenda/workload?from=${from}&to=${to}`);
       const payload = res.data;
       setWorkload(Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : []);
-    } finally { setLoading(false); }
+    } catch { /* AGENT n'a pas accès — on ignore silencieusement */ }
+    finally { setLoading(false); }
   }, [from, to]);
 
   useEffect(() => { loadWorkload(); }, [loadWorkload]);

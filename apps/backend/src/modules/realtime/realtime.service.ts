@@ -137,7 +137,7 @@ export class RealtimeService {
       agents,
       activeCalls: calls,
       queues: [],
-      dialer: this.dialer.getActiveSessions().map((s) => ({ campaignId: s.campaignId, mode: s.mode, active: s.active })),
+      dialer: (await this.dialer.getActiveSessions()).map((s) => ({ campaignId: s.campaignId, mode: s.mode, active: s.active })),
       spySessions: this.supervision.getActiveSessions(),
       kpis: {
         totalCallsToday: total,

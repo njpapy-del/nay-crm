@@ -30,20 +30,22 @@ export function Logo({ size = 40, showText = true, variant = 'full', dark = fals
         <rect width="40" height="40" rx="10" fill="url(#logoGrad)" />
         <rect width="40" height="20" rx="10" fill="url(#glowGrad)" />
 
-        {/* Lettre L */}
-        <path d="M10 10 L10 26 L20 26 L20 23 L13 23 L13 10 Z" fill="white" opacity="0.95" />
+        {/* Chiffre 26 en gros */}
+        <text
+          x="20"
+          y="27"
+          textAnchor="middle"
+          fontFamily="'Arial Black', Arial, sans-serif"
+          fontWeight="900"
+          fontSize="18"
+          fill="white"
+          letterSpacing="-1"
+        >
+          26
+        </text>
 
-        {/* Symbole 666 — trois cercles en triangle discrets */}
-        {/* cercle haut-centre */}
-        <circle cx="25" cy="26.5" r="2" fill="none" stroke="#93c5fd" strokeWidth="1.2" opacity="0.6" />
-        {/* cercle bas-gauche */}
-        <circle cx="22" cy="32" r="2" fill="none" stroke="#93c5fd" strokeWidth="1.2" opacity="0.6" />
-        {/* cercle bas-droite */}
-        <circle cx="28" cy="32" r="2" fill="none" stroke="#93c5fd" strokeWidth="1.2" opacity="0.6" />
-        {/* liens entre cercles — triquetra minimaliste */}
-        <line x1="25" y1="28.5" x2="22.8" y2="30.2" stroke="#93c5fd" strokeWidth="0.6" opacity="0.35" />
-        <line x1="25" y1="28.5" x2="27.2" y2="30.2" stroke="#93c5fd" strokeWidth="0.6" opacity="0.35" />
-        <line x1="24" y1="32" x2="26" y2="32" stroke="#93c5fd" strokeWidth="0.6" opacity="0.35" />
+        {/* Trait décoratif bas */}
+        <rect x="8" y="31" width="24" height="1.5" rx="0.75" fill="white" opacity="0.25" />
       </svg>
 
       {(showText || variant === 'full') && (
@@ -70,13 +72,19 @@ export function LogoSVG({ size = 40 }: { size?: number }) {
         </linearGradient>
       </defs>
       <rect width="40" height="40" rx="10" fill="url(#g1)" />
-      <path d="M10 10 L10 26 L20 26 L20 23 L13 23 L13 10 Z" fill="white" opacity="0.95" />
-      <circle cx="25" cy="26.5" r="2" fill="none" stroke="#93c5fd" strokeWidth="1.2" opacity="0.6" />
-      <circle cx="22" cy="32" r="2" fill="none" stroke="#93c5fd" strokeWidth="1.2" opacity="0.6" />
-      <circle cx="28" cy="32" r="2" fill="none" stroke="#93c5fd" strokeWidth="1.2" opacity="0.6" />
-      <line x1="25" y1="28.5" x2="22.8" y2="30.2" stroke="#93c5fd" strokeWidth="0.6" opacity="0.35" />
-      <line x1="25" y1="28.5" x2="27.2" y2="30.2" stroke="#93c5fd" strokeWidth="0.6" opacity="0.35" />
-      <line x1="24" y1="32" x2="26" y2="32" stroke="#93c5fd" strokeWidth="0.6" opacity="0.35" />
+      <text
+        x="20"
+        y="27"
+        textAnchor="middle"
+        fontFamily="'Arial Black', Arial, sans-serif"
+        fontWeight="900"
+        fontSize="18"
+        fill="white"
+        letterSpacing="-1"
+      >
+        26
+      </text>
+      <rect x="8" y="31" width="24" height="1.5" rx="0.75" fill="white" opacity="0.25" />
     </svg>
   );
 }

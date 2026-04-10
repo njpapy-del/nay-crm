@@ -14,10 +14,8 @@ export class KpiController {
     private readonly prisma: PrismaService,
   ) {}
 
-  // ─── KPI global ou filtré ─────────────────────────────────────────────────
-
   @Get()
-  @Roles('ADMIN', 'MANAGER', 'AGENT')
+  @Roles('ADMIN', 'MANAGER', 'AGENT', 'QUALITY', 'QUALITY_SUPERVISOR')
   async getKpi(
     @CurrentUser() user: any,
     @Query('dateFrom') dateFrom?: string,
@@ -32,10 +30,8 @@ export class KpiController {
     return { kpi, alerts };
   }
 
-  // ─── KPI par agent ────────────────────────────────────────────────────────
-
   @Get('by-agent')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'MANAGER', 'QUALITY', 'QUALITY_SUPERVISOR')
   async byAgent(
     @CurrentUser() user: any,
     @Query('dateFrom') dateFrom?: string,
@@ -47,10 +43,8 @@ export class KpiController {
     return this.kpiService.byAgent(user.tenantId, from, to, campaignId);
   }
 
-  // ─── Série temporelle ─────────────────────────────────────────────────────
-
   @Get('timeseries')
-  @Roles('ADMIN', 'MANAGER', 'AGENT')
+  @Roles('ADMIN', 'MANAGER', 'AGENT', 'QUALITY', 'QUALITY_SUPERVISOR')
   async timeSeries(
     @CurrentUser() user: any,
     @Query('dateFrom') dateFrom?: string,
@@ -64,10 +58,8 @@ export class KpiController {
     return this.kpiService.timeSeries({ tenantId: user.tenantId, agentId, campaignId, dateFrom: from, dateTo: to }, granularity);
   }
 
-  // ─── Alertes CRUD ─────────────────────────────────────────────────────────
-
   @Get('alerts')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'MANAGER', 'QUALITY', 'QUALITY_SUPERVISOR')
   getAlerts(@CurrentUser() user: any) {
     return this.prisma.alertRule.findMany({ where: { tenantId: user.tenantId }, orderBy: { createdAt: 'desc' } });
   }
@@ -91,8 +83,6 @@ export class KpiController {
   deleteAlert(@CurrentUser() user: any, @Param('id') id: string) {
     return this.prisma.alertRule.deleteMany({ where: { id, tenantId: user.tenantId } });
   }
-
-  // ─── Trigger agrégation manuelle ─────────────────────────────────────────
 
   @Post('aggregate')
   @Roles('ADMIN')

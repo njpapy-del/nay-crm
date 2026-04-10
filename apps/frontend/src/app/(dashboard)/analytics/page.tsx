@@ -41,7 +41,7 @@ export default function AnalyticsPage() {
     try {
       const { dateFrom, dateTo } = getDates();
       const p = `?dateFrom=${dateFrom}&dateTo=${dateTo}`;
-      const [dashRes, qualifRes, hourRes, campRes, revRes, rtRes] = await Promise.all([
+      const [dashRes, qualifRes, hourRes, campRes, revRes, rtRes] = await Promise.allSettled([
         api.get(`/analytics/dashboard${p}`),
         api.get(`/analytics/qualifications${p}`),
         api.get(`/analytics/calls-by-hour${p}`),
@@ -49,12 +49,19 @@ export default function AnalyticsPage() {
         api.get(`/analytics/revenue${p}`),
         api.get('/analytics/realtime'),
       ]);
-      setDashboard(dashRes.data.data ?? dashRes.data);
-      setQualifData((qualifRes.data.data ?? qualifRes.data ?? []).map((q: any) => ({ name: QUALIF_LABELS[q.qualification] ?? q.qualification, value: q.count })));
-      setHourData(hourRes.data.data ?? hourRes.data ?? []);
-      setCampaignData(campRes.data.data ?? campRes.data ?? []);
-      setRevenueData(revRes.data.data ?? revRes.data ?? []);
-      setRealtime(rtRes.data.data ?? rtRes.data);
+      const val = (r: PromiseSettledResult<any>) => r.status === 'fulfilled' ? r.value : null;
+      const dashD  = val(dashRes);
+      const qualifD = val(qualifRes);
+      const hourD  = val(hourRes);
+      const campD  = val(campRes);
+      const revD   = val(revRes);
+      const rtD    = val(rtRes);
+      if (dashD)  setDashboard(dashD.data.data ?? dashD.data);
+      if (qualifD) setQualifData((qualifD.data.data ?? qualifD.data ?? []).map((q: any) => ({ name: QUALIF_LABELS[q.qualification] ?? q.qualification, value: q.count })));
+      if (hourD)  setHourData(hourD.data.data ?? hourD.data ?? []);
+      if (campD)  setCampaignData(campD.data.data ?? campD.data ?? []);
+      if (revD)   setRevenueData(revD.data.data ?? revD.data ?? []);
+      if (rtD)    setRealtime(rtD.data.data ?? rtD.data);
     } finally { setLoading(false); setRefreshing(false); }
   }, [getDates]);
 

@@ -4,12 +4,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { clsx } from 'clsx';
 import { useAuthStore } from '@/stores/auth.store';
-import { Plus, Check, X, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Check, X, ChevronLeft, ChevronRight } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type EventType   = 'BREAK' | 'LUNCH' | 'TRAINING' | 'ABSENCE' | 'MEETING';
-type ReqStatus   = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+type EventType = 'BREAK' | 'TOILET' | 'LUNCH' | 'TRAINING' | 'ABSENCE' | 'MEETING';
+type ReqStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
 
 interface PlanEvent {
   id: string;
@@ -38,11 +38,12 @@ interface PlanRequest {
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const TYPE_META: Record<EventType, { label: string; icon: string; color: string; bg: string }> = {
-  BREAK:    { label: 'Pause',      icon: '☕', color: 'text-amber-700',  bg: 'bg-amber-100'   },
-  LUNCH:    { label: 'Déjeuner',   icon: '🍽️', color: 'text-orange-700', bg: 'bg-orange-100'  },
-  TRAINING: { label: 'Formation',  icon: '📚', color: 'text-teal-700',   bg: 'bg-teal-100'    },
-  ABSENCE:  { label: 'Absence',    icon: '🏠', color: 'text-red-700',    bg: 'bg-red-100'     },
-  MEETING:  { label: 'Réunion',    icon: '👥', color: 'text-blue-700',   bg: 'bg-blue-100'    },
+  BREAK:    { label: 'Pause',           icon: '☕', color: 'text-amber-700',  bg: 'bg-amber-100'   },
+  TOILET:   { label: 'Pause toilette',  icon: '🚻', color: 'text-purple-700', bg: 'bg-purple-100'  },
+  LUNCH:    { label: 'Déjeuner',        icon: '🍽️', color: 'text-orange-700', bg: 'bg-orange-100'  },
+  TRAINING: { label: 'Formation',       icon: '📚', color: 'text-teal-700',   bg: 'bg-teal-100'    },
+  ABSENCE:  { label: 'Absence',         icon: '🏠', color: 'text-red-700',    bg: 'bg-red-100'     },
+  MEETING:  { label: 'Réunion',         icon: '👥', color: 'text-blue-700',   bg: 'bg-blue-100'    },
 };
 
 const STATUS_STYLE: Record<ReqStatus, string> = {
@@ -60,7 +61,7 @@ const DAYS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const startOfWeek = (d: Date) => {
-  const day = d.getDay(); // 0 = Sun
+  const day = d.getDay();
   const diff = (day === 0 ? -6 : 1 - day);
   const mon = new Date(d);
   mon.setDate(d.getDate() + diff);
@@ -75,48 +76,115 @@ const addDays = (d: Date, n: number) => {
 const fmtDate = (d: Date) => d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
 const fmtTime = (s: string) => new Date(s).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
+// Combine date string (YYYY-MM-DD) + time string (HH:MM) into ISO
+const buildISO = (date: string, time: string) => {
+  if (!date || !time) return '';
+  return new Date(`${date}T${time}:00`).toISOString();
+};
+
 // ─── New request form ─────────────────────────────────────────────────────────
 
 function RequestForm({ onSubmit, onCancel }: { onSubmit: (d: any) => void; onCancel: () => void }) {
   const [form, setForm] = useState({
-    type: 'BREAK' as EventType,
-    title: '', startAt: '', endAt: '', motif: '',
+    type:      'BREAK' as EventType,
+    date:      '',
+    startTime: '',
+    endTime:   '',
+    motif:     '',
   });
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
+  const canSubmit = form.date && form.startTime && form.endTime;
+
+  const handleSubmit = () => {
+    const title   = TYPE_META[form.type].label;
+    const startAt = buildISO(form.date, form.startTime);
+    const endAt   = buildISO(form.date, form.endTime);
+    onSubmit({ type: form.type, title, startAt, endAt, motif: form.motif });
+  };
+
   return (
     <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md space-y-4">
-      <h2 className="text-lg font-bold text-gray-900">Nouvelle demande</h2>
+      <h2 className="text-lg font-bold text-gray-900">Nouvelle demande planning</h2>
+
+      {/* Type */}
       <div>
-        <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase">Type</label>
-        <select className="input w-full" value={form.type} onChange={e => set('type', e.target.value)}>
-          {(Object.keys(TYPE_META) as EventType[]).map(t => (
-            <option key={t} value={t}>{TYPE_META[t].icon} {TYPE_META[t].label}</option>
-          ))}
-        </select>
+        <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase">Type de demande *</label>
+        <div className="grid grid-cols-3 gap-2">
+          {(Object.keys(TYPE_META) as EventType[]).map(t => {
+            const m = TYPE_META[t];
+            return (
+              <button key={t} type="button" onClick={() => set('type', t)}
+                className={`flex flex-col items-center gap-1 py-2.5 rounded-xl border-2 text-xs font-medium transition-all ${
+                  form.type === t
+                    ? 'border-primary-500 bg-primary-50 text-primary-700'
+                    : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                }`}>
+                <span className="text-lg">{m.icon}</span>
+                {m.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
+
+      {/* Date */}
       <div>
-        <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase">Titre</label>
-        <input className="input w-full" value={form.title} onChange={e => set('title', e.target.value)} placeholder="Ex: Pause café 10h" />
+        <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase">Date *</label>
+        <input
+          type="date"
+          className="input w-full"
+          value={form.date}
+          onChange={e => set('date', e.target.value)}
+        />
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase">Début</label>
-          <input type="datetime-local" className="input w-full" value={form.startAt} onChange={e => set('startAt', e.target.value)} />
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase">Fin</label>
-          <input type="datetime-local" className="input w-full" value={form.endAt} onChange={e => set('endAt', e.target.value)} />
+
+      {/* Plage horaire */}
+      <div>
+        <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase">Plage horaire *</label>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Début</label>
+            <input
+              type="time"
+              className="input w-full"
+              value={form.startTime}
+              onChange={e => set('startTime', e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Fin</label>
+            <input
+              type="time"
+              className="input w-full"
+              value={form.endTime}
+              onChange={e => set('endTime', e.target.value)}
+            />
+          </div>
         </div>
       </div>
+
+      {/* Motif */}
       <div>
         <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase">Motif</label>
-        <textarea className="input w-full resize-none" rows={2} value={form.motif} onChange={e => set('motif', e.target.value)} placeholder="Motif de la demande…" />
+        <textarea
+          className="input w-full resize-none"
+          rows={2}
+          value={form.motif}
+          onChange={e => set('motif', e.target.value)}
+          placeholder="Raison de la demande…"
+        />
       </div>
-      <div className="flex justify-end gap-2">
+
+      <div className="flex justify-end gap-2 pt-1">
         <button onClick={onCancel} className="btn-secondary text-sm">Annuler</button>
-        <button onClick={() => onSubmit(form)} disabled={!form.title || !form.startAt || !form.endAt}
-          className="btn-primary text-sm">Envoyer</button>
+        <button
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          className="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Envoyer
+        </button>
       </div>
     </div>
   );
@@ -126,7 +194,7 @@ function RequestForm({ onSubmit, onCancel }: { onSubmit: (d: any) => void; onCan
 
 export default function PlanningPage() {
   const { user } = useAuthStore();
-  const isManager = user?.role === 'ADMIN' || user?.role === 'MANAGER';
+  const isReviewer = ['ADMIN', 'MANAGER', 'HR'].includes(user?.role ?? '');
 
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [events,    setEvents]    = useState<PlanEvent[]>([]);
@@ -145,14 +213,19 @@ export default function PlanningPage() {
       const d = r?.data?.data ?? r?.data;
       return Array.isArray(d) ? d : [];
     };
-    await Promise.allSettled([
-      api.get(`/planning/events?from=${from}&to=${to}`).then(r => setEvents(toArr(r))),
-      isManager
-        ? api.get('/planning/requests?status=PENDING').then(r => setRequests(toArr(r)))
-        : api.get('/planning/requests/mine').then(r => setRequests(toArr(r))),
-    ]);
-    setLoading(false);
-  }, [weekStart, isManager]);
+    try {
+      await Promise.allSettled([
+        api.get(`/planning/events?from=${from}&to=${to}`).then(r => setEvents(toArr(r))),
+        isReviewer
+          ? api.get('/planning/requests?status=PENDING').then(r => setRequests(toArr(r)))
+          : api.get('/planning/requests/mine').then(r => setRequests(toArr(r))),
+      ]);
+    } catch (e: any) {
+      console.error('[planning]', e?.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [weekStart, isReviewer]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -167,7 +240,6 @@ export default function PlanningPage() {
     fetchData();
   };
 
-  // Events per day index
   const eventsOnDay = (day: Date) => events.filter(e => {
     const d = new Date(e.startAt);
     return d.toDateString() === day.toDateString();
@@ -231,7 +303,7 @@ export default function PlanningPage() {
                       <div key={e.id} className={clsx('rounded-lg px-2 py-1 text-xs font-medium', m.bg, m.color)}>
                         <div className="font-semibold truncate">{m.icon} {e.title}</div>
                         <div className="opacity-70 truncate">{e.agent.firstName} {e.agent.lastName}</div>
-                        <div className="opacity-60">{fmtTime(e.startAt)}–{fmtTime(e.endAt)}</div>
+                        <div className="opacity-60 font-mono">{fmtTime(e.startAt)}–{fmtTime(e.endAt)}</div>
                       </div>
                     );
                   })}
@@ -242,10 +314,10 @@ export default function PlanningPage() {
         )}
       </div>
 
-      {/* Pending requests (manager) or my requests (agent) */}
+      {/* Pending requests (manager/HR) or my requests (agent) */}
       <div className="card overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100 font-semibold text-gray-700 text-sm">
-          {isManager ? `Demandes en attente (${requests.filter(r => r.status === 'PENDING').length})` : 'Mes demandes'}
+          {isReviewer ? `Demandes en attente (${requests.filter(r => r.status === 'PENDING').length})` : 'Mes demandes'}
         </div>
         {requests.length === 0 ? (
           <div className="py-8 text-center text-gray-400 text-sm">Aucune demande</div>
@@ -253,7 +325,7 @@ export default function PlanningPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
               <tr>
-                {['Agent', 'Type', 'Période', 'Motif', 'Statut', ...(isManager ? ['Actions'] : [])].map(h => (
+                {['Agent', 'Type', 'Date', 'Plage horaire', 'Motif', 'Statut', ...(isReviewer ? ['Actions'] : [])].map(h => (
                   <th key={h} className="px-4 py-2.5 text-left font-semibold">{h}</th>
                 ))}
               </tr>
@@ -272,17 +344,18 @@ export default function PlanningPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">
-                      {new Date(req.startAt).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}
-                      {' → '}
-                      {new Date(req.endAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(req.startAt).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                     </td>
-                    <td className="px-4 py-3 text-gray-500 text-xs max-w-[160px] truncate">{req.motif ?? '—'}</td>
+                    <td className="px-4 py-3 text-xs text-gray-500 font-mono whitespace-nowrap">
+                      {fmtTime(req.startAt)} → {fmtTime(req.endAt)}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500 text-xs max-w-[140px] truncate">{req.motif ?? '—'}</td>
                     <td className="px-4 py-3">
                       <span className={clsx('px-2 py-0.5 rounded-full text-xs font-medium', STATUS_STYLE[req.status])}>
                         {STATUS_LABEL[req.status]}
                       </span>
                     </td>
-                    {isManager && req.status === 'PENDING' && (
+                    {isReviewer && req.status === 'PENDING' && (
                       <td className="px-4 py-3">
                         <div className="flex gap-1.5">
                           <button onClick={() => reviewRequest(req.id, 'APPROVED')}
@@ -296,7 +369,7 @@ export default function PlanningPage() {
                         </div>
                       </td>
                     )}
-                    {isManager && req.status !== 'PENDING' && <td />}
+                    {isReviewer && req.status !== 'PENDING' && <td />}
                   </tr>
                 );
               })}

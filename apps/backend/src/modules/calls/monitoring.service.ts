@@ -77,7 +77,7 @@ export class MonitoringService {
       agents,
       queues: [],
       today: todayStats,
-      dialer: this.dialer.getActiveSessions().map((s) => ({
+      dialer: (await this.dialer.getActiveSessions()).map((s) => ({
         campaignId: s.campaignId, mode: s.mode, active: s.active,
       })),
       timestamp: new Date().toISOString(),

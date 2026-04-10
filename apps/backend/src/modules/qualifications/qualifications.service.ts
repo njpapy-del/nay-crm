@@ -50,9 +50,12 @@ export class QualificationsService {
       });
     }
 
-    // 4. Create appointment if APPOINTMENT
-    if (dto.qualification === 'APPOINTMENT' && dto.rdvAt && callLog.call?.lead) {
-      await this._createAppointment(tenantId, agentId, callLog, dto.rdvAt);
+    // 4. Create/upsert Client + appointment if APPOINTMENT
+    if (dto.qualification === 'APPOINTMENT') {
+      const clientId = await this._upsertClientFromRdv(tenantId, agentId, callLog, dto);
+      if (dto.rdvAt) {
+        await this._createAppointment(tenantId, agentId, callLog, dto.rdvAt, clientId);
+      }
     }
 
     // 5. Create reminder if CALLBACK
@@ -78,8 +81,8 @@ export class QualificationsService {
       include: {
         call: {
           include: {
-            client: { select: { id: true, firstName: true, lastName: true, phone: true, company: true } },
-            lead:   { select: { id: true, firstName: true, lastName: true, phone: true, campaignId: true } },
+            client: { select: { id: true, firstName: true, lastName: true, phone: true, email: true, company: true, address: true, postalCode: true, notes: true } },
+            lead:   { select: { id: true, firstName: true, lastName: true, phone: true, email: true, company: true, campaignId: true } },
           },
         },
         campaign: { select: { id: true, name: true } },
@@ -138,7 +141,87 @@ export class QualificationsService {
     return (map[q] ?? 'NOT_INTERESTED') as any;
   }
 
-  private async _createAppointment(tenantId: string, agentId: string, callLog: any, rdvAt: string) {
+  private async _upsertClientFromRdv(
+    tenantId: string,
+    agentId: string,
+    callLog: any,
+    dto: QualifyCallDto,
+  ): Promise<string | null> {
+    const lead = callLog.call?.lead;
+    const existingClient = callLog.call?.client;
+
+    // Si le call porte déjà sur un Client existant → marquer qualification RDV
+    if (existingClient) {
+      await this.prisma.client.update({
+        where: { id: existingClient.id },
+        data: {
+          qualification: 'RDV' as any,
+          qualifiedAt: new Date(),
+          qualifiedById: agentId,
+          ...(dto.clientAddress   && { address:    dto.clientAddress }),
+          ...(dto.clientPostalCode && { postalCode: dto.clientPostalCode }),
+          ...(dto.clientNotes     && { notes:      dto.clientNotes }),
+          ...(dto.clientEmail     && { email:      dto.clientEmail }),
+        },
+      }).catch(() => null);
+      return existingClient.id;
+    }
+
+    // Sinon créer un nouveau Client à partir du Lead + infos saisies par l'agent
+    const firstName = dto.clientFirstName || lead?.firstName || '';
+    const lastName  = dto.clientLastName  || lead?.lastName  || '';
+    const phone     = dto.clientPhone     || lead?.phone     || callLog.calleeNumber || '';
+
+    if (!phone) return null;
+
+    // Éviter les doublons sur le numéro de téléphone
+    const existing = await this.prisma.client.findFirst({
+      where: { tenantId, phone },
+    });
+
+    if (existing) {
+      await this.prisma.client.update({
+        where: { id: existing.id },
+        data: {
+          qualification: 'RDV' as any,
+          qualifiedAt: new Date(),
+          qualifiedById: agentId,
+          ...(firstName          && { firstName }),
+          ...(lastName           && { lastName }),
+          ...(dto.clientEmail    && { email:      dto.clientEmail }),
+          ...(dto.clientCompany  && { company:    dto.clientCompany }),
+          ...(dto.clientAddress  && { address:    dto.clientAddress }),
+          ...(dto.clientPostalCode && { postalCode: dto.clientPostalCode }),
+          ...(dto.clientNotes    && { notes:      dto.clientNotes }),
+          assignedAgentId: agentId,
+        },
+      }).catch(() => null);
+      return existing.id;
+    }
+
+    const created = await this.prisma.client.create({
+      data: {
+        tenantId,
+        firstName,
+        lastName,
+        phone,
+        email:      dto.clientEmail    || lead?.email    || undefined,
+        company:    dto.clientCompany  || lead?.company  || undefined,
+        address:    dto.clientAddress  || undefined,
+        postalCode: dto.clientPostalCode || undefined,
+        notes:      dto.clientNotes    || dto.agentNotes || undefined,
+        status:     'ACTIVE' as any,
+        qualification: 'RDV' as any,
+        qualifiedAt: new Date(),
+        qualifiedById: agentId,
+        assignedAgentId: agentId,
+      },
+    }).catch(() => null);
+
+    return created?.id ?? null;
+  }
+
+  private async _createAppointment(tenantId: string, agentId: string, callLog: any, rdvAt: string, clientId?: string | null) {
     const lead = callLog.call?.lead;
     const client = callLog.call?.client;
     const name = lead ? `${lead.firstName} ${lead.lastName}` : client ? `${client.firstName} ${client.lastName}` : 'Contact';
@@ -146,7 +229,7 @@ export class QualificationsService {
     await this.prisma.appointment.create({
       data: {
         tenantId, agentId,
-        clientId: client?.id,
+        clientId: clientId ?? client?.id ?? undefined,
         campaignId: callLog.campaignId,
         title: `RDV — ${name}`,
         startAt: new Date(rdvAt),

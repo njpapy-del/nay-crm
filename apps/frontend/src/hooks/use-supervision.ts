@@ -56,6 +56,20 @@ export interface ChatMessage {
   sentAt: string;
 }
 
+export interface PrivateChatMsg {
+  id:        string;
+  fromId:    string;
+  fromName:  string;
+  toId:      string;
+  tenantId:  string;
+  content:   string;
+  sentAt:    string;
+  direction: 'manager_to_agent' | 'agent_to_manager';
+}
+
+// Map agentId → messages de la conversation
+export type PrivateConversations = Record<string, PrivateChatMsg[]>;
+
 type SpyMode = 'listen' | 'whisper' | 'barge';
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? 'http://localhost:3001';
@@ -64,13 +78,15 @@ export function useSupervision(tenantId: string, userId: string, name: string, r
   const rtSocket  = useRef<Socket | null>(null);
   const supSocket = useRef<Socket | null>(null);
 
-  const [snapshot, setSnapshot]     = useState<RealtimeSnapshot | null>(null);
-  const [messages, setMessages]     = useState<ChatMessage[]>([]);
-  const [spyActive, setSpyActive]   = useState(false);
-  const [spyTarget, setSpyTarget]   = useState<string | null>(null);
-  const [spyMode, setSpyMode]       = useState<SpyMode>('listen');
-  const [clientCard, setClientCard] = useState<any | null>(null);
-  const [connected, setConnected]   = useState(false);
+  const [snapshot, setSnapshot]           = useState<RealtimeSnapshot | null>(null);
+  const [messages, setMessages]           = useState<ChatMessage[]>([]);
+  const [privateConvs, setPrivateConvs]   = useState<PrivateConversations>({});
+  const [unreadPerAgent, setUnreadPerAgent] = useState<Record<string, number>>({});
+  const [spyActive, setSpyActive]         = useState(false);
+  const [spyTarget, setSpyTarget]         = useState<string | null>(null);
+  const [spyMode, setSpyMode]             = useState<SpyMode>('listen');
+  const [clientCard, setClientCard]       = useState<any | null>(null);
+  const [connected, setConnected]         = useState(false);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -99,6 +115,23 @@ export function useSupervision(tenantId: string, userId: string, name: string, r
     sup.on('sup:message:sent',     (msg: ChatMessage) => setMessages((prev) => [msg, ...prev].slice(0, 100)));
     sup.on('sup:client:card',      (card: any)        => setClientCard(card));
 
+    // ── Chat privé : message envoyé confirmé (manager→agent) ──
+    sup.on('sup:private:sent', (msg: PrivateChatMsg) => {
+      setPrivateConvs((prev) => ({
+        ...prev,
+        [msg.toId]: [...(prev[msg.toId] ?? []), msg].slice(-100),
+      }));
+    });
+
+    // ── Chat privé : réponse reçue (agent→manager) ────────────
+    sup.on('sup:private:reply', (msg: PrivateChatMsg) => {
+      setPrivateConvs((prev) => ({
+        ...prev,
+        [msg.fromId]: [...(prev[msg.fromId] ?? []), msg].slice(-100),
+      }));
+      setUnreadPerAgent((prev) => ({ ...prev, [msg.fromId]: (prev[msg.fromId] ?? 0) + 1 }));
+    });
+
     return () => { rt.disconnect(); sup.disconnect(); };
   }, [tenantId, userId, name, role]);
 
@@ -123,10 +156,19 @@ export function useSupervision(tenantId: string, userId: string, name: string, r
     supSocket.current?.emit('sup:message', { content, toAgentId });
   }, []);
 
+  const sendPrivate = useCallback((toAgentId: string, content: string) => {
+    supSocket.current?.emit('sup:private:send', { toAgentId, content });
+  }, []);
+
+  const clearAgentUnread = useCallback((agentId: string) => {
+    setUnreadPerAgent((prev) => ({ ...prev, [agentId]: 0 }));
+  }, []);
+
   const dismissCard = useCallback(() => setClientCard(null), []);
 
   return {
     connected, snapshot, messages, spyActive, spyTarget, spyMode,
     clientCard, startSpy, switchMode, stopSpy, sendMessage, dismissCard,
+    privateConvs, unreadPerAgent, sendPrivate, clearAgentUnread,
   };
 }

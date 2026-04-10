@@ -1,20 +1,25 @@
-import {
-  IsString, IsOptional, IsEnum, IsDateString, MinLength,
-} from 'class-validator';
-import { CampaignStatus } from '@prisma/client';
+import { IsString, IsOptional, IsEnum, IsDateString, MinLength } from 'class-validator';
 
 export class CreateCampaignDto {
   @IsString()
   @MinLength(2)
-  name: string;
+  name!: string;
 
   @IsString()
   @IsOptional()
   description?: string;
 
-  @IsEnum(CampaignStatus)
+  @IsEnum(['DRAFT', 'ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED'])
   @IsOptional()
-  status?: CampaignStatus;
+  status?: string;
+
+  @IsEnum(['EMISSION', 'RECEPTION', 'MIXTE'])
+  @IsOptional()
+  type?: string;
+
+  @IsEnum(['MANUAL', 'ROUND_ROBIN', 'RANDOM'])
+  @IsOptional()
+  callerIdRotation?: string;
 
   @IsDateString()
   @IsOptional()

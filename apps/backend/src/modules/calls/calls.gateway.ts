@@ -4,10 +4,12 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { AmiService } from './asterisk/ami.service';
 import { AgentStateService } from './agent-state.service';
 import { MonitoringService } from './monitoring.service';
+import type { PrivateChatMessage } from '../supervision/supervision.gateway';
+
 
 /**
  * Gateway Socket.io — /telephony
@@ -28,6 +30,7 @@ export class CallsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly ami: AmiService,
     private readonly agentState: AgentStateService,
     private readonly monitoring: MonitoringService,
+    private readonly events: EventEmitter2,
   ) {}
 
   handleConnection(client: Socket) {
@@ -37,7 +40,9 @@ export class CallsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   handleDisconnect(client: Socket) {
     const meta = this.socketToAgent.get(client.id);
     if (meta) {
-      this.agentState.logout(meta.agentId).catch(() => {});
+      // Déconnexion WS = navigation entre pages, pas un vrai logout
+      // On passe l'agent en AVAILABLE pour qu'il soit repris au prochain reconnect
+      this.agentState.setAvailable(meta.agentId).catch(() => {});
       this.socketToAgent.delete(client.id);
     }
   }
@@ -162,12 +167,17 @@ export class CallsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @OnEvent('dialer.call.ended')
-  onDialerCallEnded(data: { callId: string; agentId: string; callLogId?: string }) {
+  async onDialerCallEnded(data: { callId: string; agentId: string; callLogId?: string }) {
+    // Persister le blocage qualification en base avant d'émettre
+    if (data.callLogId) {
+      await this.agentState.setPendingQualification(data.agentId, data.callLogId);
+    }
     this.server.to(`agent:${data.agentId}`).emit('call:wrap_up', data);
     this.server.to(`agent:${data.agentId}`).emit('call:postcall', {
-      callId: data.callId,
-      callLogId: data.callLogId,
-      source: 'dialer',
+      callId:                data.callId,
+      callLogId:             data.callLogId,
+      source:                'dialer',
+      qualificationRequired: !!data.callLogId,
     });
   }
 
@@ -188,6 +198,44 @@ export class CallsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @OnEvent('planning.request.approved')
   onPlanningApproved(data: { tenantId: string; agentId: string; requestId: string }) {
     this.server.to(`agent:${data.agentId}`).emit('planning:approved', data);
+  }
+
+  // ── Chat privé manager↔agent ─────────────────────────────
+
+  /** Reçu depuis SupervisionGateway via EventEmitter2 → livrer à l'agent dans /telephony */
+  @OnEvent('chat.private.message')
+  onPrivateMessage(msg: PrivateChatMessage) {
+    this.server.to(`agent:${msg.toId}`).emit('chat:private', msg);
+    this.logger.debug(`[Chat] Livré à agent:${msg.toId}`);
+  }
+
+  /** L'agent répond → bridge vers SupervisionGateway via EventEmitter2 */
+  @SubscribeMessage('agent:chat:reply')
+  handleAgentReply(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { toManagerId: string; content: string },
+  ) {
+    const meta = this.socketToAgent.get(client.id);
+    if (!meta || !data?.toManagerId || !data.content?.trim()) return;
+
+    const msg: PrivateChatMessage = {
+      id:        `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      fromId:    meta.agentId,
+      fromName:  '',   // résolu côté manager depuis le snapshot
+      toId:      data.toManagerId,
+      tenantId:  meta.tenantId,
+      content:   data.content.trim(),
+      sentAt:    new Date().toISOString(),
+      direction: 'agent_to_manager',
+    };
+
+    // Confirmer à l'agent
+    client.emit('chat:private:sent', msg);
+
+    // Bridge cross-namespace → SupervisionGateway
+    this.events.emit('chat.private.reply', msg);
+
+    this.logger.debug(`[Chat] Agent ${meta.agentId} → manager ${data.toManagerId}`);
   }
 
   // ── Helpers ───────────────────────────────────────────────

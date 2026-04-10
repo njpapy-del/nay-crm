@@ -10,6 +10,7 @@ export interface SpySession {
   targetExtension: string;
   mode: SpyMode;
   channel?: string;
+  logId?: string;
   startedAt: Date;
 }
 
@@ -55,6 +56,21 @@ export class SupervisionService {
     const session: SpySession = { supervisorId, supervisorExtension, targetExtension, mode, startedAt: new Date() };
     this.spySessions.set(supervisorId, session);
     this.logger.log(`SPY ${mode}: superviseur=${supervisorExtension} → agent=${targetExtension}`);
+
+    // Persister le log
+    const agentSession = await this.prisma.agentSession.findFirst({ where: { extension: targetExtension } });
+    if (agentSession) {
+      session.logId = (await (this.prisma as any).callSupervisionLog.create({
+        data: {
+          tenantId:     agentSession.tenantId,
+          supervisorId,
+          agentId:      agentSession.agentId,
+          action:       mode === 'listen' ? 'LISTEN' : mode === 'whisper' ? 'WHISPER' : 'BARGE',
+          startedAt:    new Date(),
+        },
+      })).id;
+    }
+
     return session;
   }
 
@@ -63,6 +79,13 @@ export class SupervisionService {
     if (!session) return;
     if (session.channel) {
       await this.ami.hangup(session.channel).catch(() => {});
+    }
+    // Fermer le log
+    if (session.logId) {
+      await (this.prisma as any).callSupervisionLog.update({
+        where: { id: (session as any).logId },
+        data: { endedAt: new Date(), action: 'STOP' },
+      }).catch(() => {});
     }
     this.spySessions.delete(supervisorId);
     this.logger.log(`SPY arrêté: superviseur=${session.supervisorExtension}`);

@@ -136,6 +136,33 @@ async function main() {
     console.log(`✓ Agent créé: ${agentEmail}`);
   }
 
+  // Quality
+  const qualityEmail = 'quality@lnaycrm.com';
+  if (!await prisma.user.findFirst({ where: { tenantId: tenant.id, email: qualityEmail } })) {
+    await prisma.user.create({
+      data: { tenantId: tenant.id, email: qualityEmail, password: await bcrypt.hash('Quality1234!', 12), firstName: 'Alice', lastName: 'Dubois', role: Role.QUALITY },
+    });
+    console.log(`✓ Quality créé: ${qualityEmail}`);
+  } else { console.log(`✓ Quality déjà existant: ${qualityEmail}`); }
+
+  // Quality Supervisor
+  const qsEmail = 'qa-sup@lnaycrm.com';
+  if (!await prisma.user.findFirst({ where: { tenantId: tenant.id, email: qsEmail } })) {
+    await prisma.user.create({
+      data: { tenantId: tenant.id, email: qsEmail, password: await bcrypt.hash('QaSup1234!', 12), firstName: 'Paul', lastName: 'Leclerc', role: Role.QUALITY_SUPERVISOR },
+    });
+    console.log(`✓ Quality Supervisor créé: ${qsEmail}`);
+  } else { console.log(`✓ Quality Supervisor déjà existant: ${qsEmail}`); }
+
+  // HR
+  const hrEmail = 'hr@lnaycrm.com';
+  if (!await prisma.user.findFirst({ where: { tenantId: tenant.id, email: hrEmail } })) {
+    await prisma.user.create({
+      data: { tenantId: tenant.id, email: hrEmail, password: await bcrypt.hash('Hr1234!', 12), firstName: 'Lucie', lastName: 'Renard', role: Role.HR },
+    });
+    console.log(`✓ HR créé: ${hrEmail}`);
+  } else { console.log(`✓ HR déjà existant: ${hrEmail}`); }
+
   // Quelques clients de démo
   const clientsCount = await prisma.client.count({ where: { tenantId: tenant.id } });
   if (clientsCount === 0) {

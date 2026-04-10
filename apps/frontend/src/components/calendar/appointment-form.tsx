@@ -27,7 +27,7 @@ interface Props {
 
 export function AppointmentForm({ defaultDate, onClose, onSaved }: Props) {
   const [agents, setAgents] = useState<Agent[]>([]);
-  useEffect(() => { api.get('/users?limit=100').then((r) => setAgents(r.data.data)); }, []);
+  useEffect(() => { api.get('/users?limit=100').then((r) => setAgents(r.data?.data ?? r.data ?? [])).catch(() => {}); }, []);
 
   const defaultStart = defaultDate ? `${defaultDate}T09:00` : '';
   const defaultEnd   = defaultDate ? `${defaultDate}T10:00` : '';

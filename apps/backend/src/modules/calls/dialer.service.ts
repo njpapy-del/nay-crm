@@ -3,6 +3,7 @@ import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AmiService } from './asterisk/ami.service';
 import { AgentStateService } from './agent-state.service';
+import { RedisStateService } from '../../redis/redis-state.service';
 
 export type DialerMode = 'PROGRESSIVE' | 'PREDICTIVE' | 'PREVIEW';
 
@@ -25,7 +26,6 @@ export interface DialerSession {
 @Injectable()
 export class DialerService implements OnModuleDestroy {
   private readonly logger = new Logger(DialerService.name);
-  private sessions = new Map<string, DialerSession>();  // campaignId → session
   private dialTimer: NodeJS.Timeout | null = null;
   private readonly TICK_MS = 5_000;
 
@@ -34,6 +34,7 @@ export class DialerService implements OnModuleDestroy {
     private readonly ami: AmiService,
     private readonly agentState: AgentStateService,
     private readonly events: EventEmitter2,
+    private readonly redisState: RedisStateService,
   ) {}
 
   onModuleDestroy() {
@@ -42,28 +43,34 @@ export class DialerService implements OnModuleDestroy {
 
   // ── Contrôle sessions ─────────────────────────────────────
 
-  startCampaign(campaignId: string, tenantId: string, mode: DialerMode = 'PROGRESSIVE', ratio = 1.2) {
-    if (this.sessions.has(campaignId)) {
-      this.sessions.get(campaignId)!.active = true;
+  async startCampaign(campaignId: string, tenantId: string, mode: DialerMode = 'PROGRESSIVE', ratio = 1.2): Promise<void> {
+    const existing = await this.redisState.getDialerSession(campaignId);
+    if (existing) {
+      await this.redisState.setDialerSession(campaignId, { ...existing, active: true });
       return;
     }
-    this.sessions.set(campaignId, { campaignId, tenantId, mode, active: true, ratio, wrapUpTime: 10 });
+    const session: DialerSession = { campaignId, tenantId, mode, active: true, ratio, wrapUpTime: 10 };
+    await this.redisState.setDialerSession(campaignId, session);
     this.logger.log(`Dialer démarré: campaign=${campaignId} mode=${mode}`);
     if (!this.dialTimer) this.startTick();
     this.events.emit('dialer.started', { campaignId, mode });
   }
 
-  stopCampaign(campaignId: string) {
-    const session = this.sessions.get(campaignId);
+  async stopCampaign(campaignId: string): Promise<void> {
+    const session = await this.redisState.getDialerSession(campaignId);
     if (session) {
-      session.active = false;
+      await this.redisState.setDialerSession(campaignId, { ...session, active: false });
       this.logger.log(`Dialer arrêté: campaign=${campaignId}`);
       this.events.emit('dialer.stopped', { campaignId });
     }
   }
 
-  getActiveSessions() {
-    return [...this.sessions.values()].filter((s) => s.active);
+  async getActiveSessions(): Promise<DialerSession[]> {
+    const keys = await this.redisState.getAllDialerSessionKeys();
+    const sessions = await Promise.all(
+      keys.map((k) => this.redisState.getDialerSession(k.replace('dialer:session:', ''))),
+    );
+    return (sessions.filter(Boolean) as DialerSession[]).filter((s) => s.active);
   }
 
   // ── Tick principal ────────────────────────────────────────
@@ -73,8 +80,8 @@ export class DialerService implements OnModuleDestroy {
   }
 
   private async tick() {
-    for (const session of this.sessions.values()) {
-      if (!session.active) continue;
+    const sessions = await this.getActiveSessions();
+    for (const session of sessions) {
       try { await this.processSession(session); }
       catch (err: any) { this.logger.error(`Dialer tick error: ${err.message}`); }
     }
@@ -88,7 +95,7 @@ export class DialerService implements OnModuleDestroy {
     const leads = await this.getNextLeads(session.campaignId, session.tenantId, callsToMake);
     if (leads.length === 0) {
       this.logger.log(`Campagne ${session.campaignId} : plus de leads`);
-      this.stopCampaign(session.campaignId);
+      await this.stopCampaign(session.campaignId);
       return;
     }
 

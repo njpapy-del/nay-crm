@@ -15,12 +15,14 @@ export function DialerControl() {
   const [mode, setMode] = useState<'PROGRESSIVE' | 'PREDICTIVE' | 'PREVIEW'>('PROGRESSIVE');
 
   const fetchData = useCallback(async () => {
-    const [campRes, sessRes] = await Promise.all([
-      api.get('/campaigns?status=ACTIVE&limit=50'),
-      api.get('/calls/dialer/sessions'),
-    ]);
-    setCampaigns(campRes.data.data);
-    setSessions(sessRes.data.data);
+    try {
+      const [campRes, sessRes] = await Promise.all([
+        api.get('/campaigns?status=ACTIVE&limit=50'),
+        api.get('/calls/dialer/sessions'),
+      ]);
+      setCampaigns(campRes.data?.data ?? campRes.data ?? []);
+      setSessions(sessRes.data?.data ?? sessRes.data ?? []);
+    } catch (e: any) { console.error('[dialer-control]', e?.message); }
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);

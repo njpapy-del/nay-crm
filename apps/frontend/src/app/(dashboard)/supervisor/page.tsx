@@ -37,12 +37,13 @@ export default function SupervisorPage() {
   const { user }  = useAuthStore();
   const [tab, setTab] = useState<'agents' | 'calls' | 'chat'>('agents');
   const [campaigns, setCampaigns] = useState<any[]>([]);
-  const [chatTarget, setChatTarget] = useState<string | undefined>(undefined);
+  const [chatInitAgent, setChatInitAgent] = useState<string | undefined>(undefined);
   const chatPanelRef = useRef<boolean>(false);
 
   const {
-    connected, snapshot, messages, spyActive, spyTarget, spyMode,
-    clientCard, startSpy, switchMode, stopSpy, sendMessage, dismissCard,
+    connected, snapshot, spyActive, spyTarget, spyMode,
+    clientCard, startSpy, switchMode, stopSpy, dismissCard,
+    privateConvs, unreadPerAgent, sendPrivate, clearAgentUnread,
   } = useSupervision(
     user?.tenantId ?? '',
     user?.id ?? '',
@@ -63,7 +64,7 @@ export default function SupervisorPage() {
   }, []);
 
   const openChatTo = (agentId: string) => {
-    setChatTarget(agentId);
+    setChatInitAgent(agentId);
     setTab('chat');
     chatPanelRef.current = true;
   };
@@ -130,13 +131,23 @@ export default function SupervisorPage() {
             ['agents', `Agents (${agents.length})`],
             ['calls',  `Appels actifs (${activeCalls.length})`],
             ['chat',   'Messages'],
-          ] as const).map(([t, label]) => (
-            <button key={t} onClick={() => setTab(t)}
-              className={clsx('px-4 py-2 rounded-lg text-sm font-medium transition-colors',
-                tab === t ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
-              {label}
-            </button>
-          ))}
+          ] as const).map(([t, label]) => {
+            const totalUnread = t === 'chat'
+              ? Object.values(unreadPerAgent).reduce((a, b) => a + b, 0)
+              : 0;
+            return (
+              <button key={t} onClick={() => setTab(t)}
+                className={clsx('relative px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+                  tab === t ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
+                {label}
+                {totalUnread > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                    {totalUnread > 9 ? '9+' : totalUnread}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* Contenu onglet AGENTS */}
@@ -205,13 +216,12 @@ export default function SupervisorPage() {
         {tab === 'chat' && (
           <div className="card flex-1 overflow-hidden" style={{ height: 420 }}>
             <LiveChat
-              messages={messages}
               agents={agents.map((a) => ({ agentId: a.agentId, name: a.name }))}
-              currentUserId={user?.id ?? ''}
-              onSend={(content, toAgentId) => {
-                sendMessage(content, toAgentId ?? chatTarget);
-                setChatTarget(undefined);
-              }}
+              conversations={privateConvs}
+              unreadPerAgent={unreadPerAgent}
+              initialAgent={chatInitAgent}
+              onSend={sendPrivate}
+              onClearUnread={clearAgentUnread}
             />
           </div>
         )}

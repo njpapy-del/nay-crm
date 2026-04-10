@@ -28,6 +28,17 @@ export interface SupervisorSnapshot {
   timestamp: string;
 }
 
+export interface PrivateChatMsg {
+  id:        string;
+  fromId:    string;
+  fromName:  string;
+  toId:      string;
+  tenantId:  string;
+  content:   string;
+  sentAt:    string;
+  direction: 'manager_to_agent' | 'agent_to_manager';
+}
+
 export interface IncomingCall {
   callId?: string;
   channel?: string;
@@ -54,6 +65,8 @@ export function useCallMonitor({ tenantId, agentId, extension, role }: UseCallMo
   const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
   const [activeCall, setActiveCall] = useState<{ callId: string; startedAt: Date } | null>(null);
   const [wrapUp, setWrapUp] = useState<{ callId: string } | null>(null);
+  const [chatMessages, setChatMessages] = useState<PrivateChatMsg[]>([]);
+  const [chatUnread, setChatUnread] = useState(0);
 
   useEffect(() => {
     const socket = io(`${WS_URL}/telephony`, { transports: ['websocket'] });
@@ -98,6 +111,15 @@ export function useCallMonitor({ tenantId, agentId, extension, role }: UseCallMo
 
     socket.on('supervisor:snapshot', (snap: SupervisorSnapshot) => setSnapshot(snap));
 
+    socket.on('chat:private', (msg: PrivateChatMsg) => {
+      setChatMessages((prev) => [...prev, msg].slice(-100));
+      setChatUnread((n) => n + 1);
+    });
+
+    socket.on('chat:private:sent', (msg: PrivateChatMsg) => {
+      setChatMessages((prev) => [...prev, msg].slice(-100));
+    });
+
     return () => { socket.disconnect(); socketRef.current = null; };
   }, [tenantId, agentId, extension, role]);
 
@@ -118,6 +140,12 @@ export function useCallMonitor({ tenantId, agentId, extension, role }: UseCallMo
     socketRef.current?.emit('call:hangup', { channel });
   }, []);
 
+  const replyToManager = useCallback((toManagerId: string, content: string) => {
+    socketRef.current?.emit('agent:chat:reply', { toManagerId, content });
+  }, []);
+
+  const clearChatUnread = useCallback(() => setChatUnread(0), []);
+
   return {
     connected,
     agentState,
@@ -125,9 +153,13 @@ export function useCallMonitor({ tenantId, agentId, extension, role }: UseCallMo
     incomingCall,
     activeCall,
     wrapUp,
+    chatMessages,
+    chatUnread,
     pause,
     resume,
     endWrapUp,
     hangup,
+    replyToManager,
+    clearChatUnread,
   };
 }

@@ -154,7 +154,52 @@ export class CampaignsController {
     return this.service.deleteQualification(user.tenantId, qualifId);
   }
 
-  // ─── Stats ────────────────────────────────────────────────────────────────
+  // ─── Contact Lists activation ─────────────────────────────────────────────
+
+  @Get(':id/lists')
+  @Roles('ADMIN', 'MANAGER', 'AGENT')
+  getLists(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.service.getLists(user.tenantId, id);
+  }
+
+  @Patch(':id/lists/:listId/toggle')
+  @Roles('ADMIN', 'MANAGER')
+  toggleList(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Param('listId') listId: string,
+  ) {
+    return this.service.toggleList(user.tenantId, id, listId);
+  }
+
+  // ─── Agent stats temps réel pour une campagne ────────────────────────────
+
+  @Get(':id/agents/stats')
+  @Roles('ADMIN', 'MANAGER')
+  getAgentStats(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo')   dateTo?: string,
+  ) {
+    return this.service.getAgentStats(user.tenantId, id, dateFrom, dateTo);
+  }
+
+  // ─── KPI + répartition qualifications d'une campagne ─────────────────────
+
+  @Get(':id/stats/kpi')
+  @Roles('ADMIN', 'MANAGER', 'AGENT')
+  getCampaignKpi(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Query('agentId')  agentId?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo')   dateTo?: string,
+  ) {
+    return this.service.getCampaignKpi(user.tenantId, id, agentId, dateFrom, dateTo);
+  }
+
+  // ─── Stats globales campagnes ─────────────────────────────────────────────
 
   @Get('meta/stats')
   @Roles('ADMIN', 'MANAGER')

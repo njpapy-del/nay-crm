@@ -10,7 +10,7 @@ import { useAuthStore } from '@/stores/auth.store';
 
 type AgentStatusType =
   | 'AVAILABLE' | 'IN_CALL' | 'DEBRIEF'
-  | 'LUNCH_BREAK' | 'COFFEE_BREAK' | 'TRAINING' | 'OFFLINE';
+  | 'LUNCH_BREAK' | 'COFFEE_BREAK' | 'TOILET_BREAK' | 'TRAINING' | 'OFFLINE';
 
 interface StatusMeta {
   label: string;
@@ -27,8 +27,9 @@ const STATUS_META: Record<AgentStatusType, StatusMeta> = {
   IN_CALL:      { label: 'En appel',        color: 'text-blue-700',   bg: 'bg-blue-50   border-blue-300',   dot: 'bg-blue-500',    icon: '📞' },
   DEBRIEF:      { label: 'Débrief',         color: 'text-purple-700', bg: 'bg-purple-50 border-purple-300', dot: 'bg-purple-500',  icon: '📋' },
   LUNCH_BREAK:  { label: 'Pause déjeuner',  color: 'text-orange-700', bg: 'bg-orange-50 border-orange-300', dot: 'bg-orange-500',  icon: '🍽️' },
-  COFFEE_BREAK: { label: 'Pause café',      color: 'text-amber-700',  bg: 'bg-amber-50  border-amber-300',  dot: 'bg-amber-500',   icon: '☕' },
-  TRAINING:     { label: 'Formation',       color: 'text-teal-700',   bg: 'bg-teal-50   border-teal-300',   dot: 'bg-teal-500',    icon: '📚' },
+  COFFEE_BREAK:  { label: 'Pause café',      color: 'text-amber-700',  bg: 'bg-amber-50  border-amber-300',  dot: 'bg-amber-500',   icon: '☕' },
+  TOILET_BREAK:  { label: 'Pause toilette', color: 'text-purple-700', bg: 'bg-purple-50 border-purple-300', dot: 'bg-purple-500',  icon: '🚻' },
+  TRAINING:      { label: 'Formation',      color: 'text-teal-700',   bg: 'bg-teal-50   border-teal-300',   dot: 'bg-teal-500',    icon: '📚' },
   OFFLINE:      { label: 'Hors ligne',      color: 'text-gray-600',   bg: 'bg-gray-50   border-gray-300',   dot: 'bg-gray-400',    icon: '⚫' },
 };
 

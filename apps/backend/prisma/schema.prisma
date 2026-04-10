@@ -22,6 +22,8 @@ enum Role {
   MANAGER
   AGENT
   QUALITY
+  QUALITY_SUPERVISOR
+  HR
 }
 
 enum ClientStatus {
@@ -29,6 +31,12 @@ enum ClientStatus {
   ACTIVE
   INACTIVE
   DNC
+}
+
+enum ClientQualification {
+  RDV
+  FACTURE
+  VENDU
 }
 
 enum TenantPlan {
@@ -122,6 +130,18 @@ enum CampaignStatus {
   CANCELLED
 }
 
+enum CampaignType {
+  EMISSION
+  RECEPTION
+  MIXTE
+}
+
+enum NumberRotationMode {
+  MANUAL
+  ROUND_ROBIN
+  RANDOM
+}
+
 enum LeadStatus {
   NEW
   CONTACTED
@@ -170,12 +190,14 @@ enum AgentStatusType {
   DEBRIEF
   LUNCH_BREAK
   COFFEE_BREAK
+  TOILET_BREAK
   TRAINING
   OFFLINE
 }
 
 enum PlanningEventType {
   BREAK
+  TOILET
   LUNCH
   TRAINING
   ABSENCE
@@ -277,9 +299,41 @@ model Tenant {
   agentPlanningRequests AgentPlanningRequest[]
   aiJobs                AiJob[]
   aiUsage               AiUsage[]
+  campaignCriteria      CampaignCriteria[]
+  appointmentResponses  AppointmentResponse[]
+  appointmentScores     AppointmentScore[]
+  internalChannels      InternalChannel[]
+  internalMessages      InternalMessage[]
+  qualityGrids          QualityGrid[]
+  qualityEvaluations    QualityEvaluation[]
+  appointmentQualifications AppointmentQualification[]
+  qualityActions        QualityAction[]
+  hrRequests            HrRequest[]
+  hrAttendances         HrAttendance[]
+  campaignNumbers       CampaignNumber[]
+  supervisionLogs       CallSupervisionLog[]
+  menuPermissions       RoleMenuPermission[]
 
   @@index([slug])
   @@map("tenants")
+}
+
+// ─────────────────────────────────────────
+// Permissions menu par rôle
+// ─────────────────────────────────────────
+
+model RoleMenuPermission {
+  id       String @id @default(cuid())
+  tenantId String
+  role     String          // 'MANAGER' | 'AGENT' | 'QUALITY' | 'QUALITY_SUPERVISOR' | 'HR'
+  navKey   String          // clé du nav item (ex: 'quotes', 'invoices', 'reports')
+  visible  Boolean @default(true)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, role, navKey])
+  @@index([tenantId, role])
+  @@map("role_menu_permissions")
 }
 
 // ─────────────────────────────────────────
@@ -301,6 +355,7 @@ model User {
 
   tenant              Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   assignedClients     Client[]         @relation("AssignedAgent")
+  qualifiedClients    Client[]         @relation("QualifiedBy")
   refreshTokens       RefreshToken[]
   quotes              Quote[]          @relation("QuoteCreator")
   invoices            Invoice[]        @relation("InvoiceCreator")
@@ -334,6 +389,19 @@ model User {
   planningRequests    AgentPlanningRequest[]  @relation("AgentPlanningRequests")
   reviewedRequests    AgentPlanningRequest[]  @relation("PlanningReviewer")
   aiJobs              AiJob[]                 @relation("UserAiJobs")
+  scoreReviews        AppointmentScore[]      @relation("ScoreReviewer")
+  internalMessages    InternalMessage[]       @relation("UserMessages")
+  createdChannels     InternalChannel[]       @relation("ChannelCreator")
+  evaluatedByMe       QualityEvaluation[]     @relation("Evaluator")
+  myEvaluations       QualityEvaluation[]     @relation("EvaluatedAgent")
+  qualifiedRdv        AppointmentQualification[] @relation("QualifiedBy")
+  qualityActionsGiven QualityAction[]         @relation("ActionCreator")
+  qualityActionsReceived QualityAction[]      @relation("ActionTarget")
+  hrRequestsSubmitted HrRequest[]             @relation("HrRequestAgent")
+  hrRequestsReviewed  HrRequest[]             @relation("HrReviewer")
+  hrAttendances             HrAttendance[]          @relation("AttendanceAgent")
+  supervisionLogsAsSupervisor CallSupervisionLog[]  @relation("SupervisionSupervisor")
+  supervisionLogsAsAgent      CallSupervisionLog[]  @relation("SupervisionAgent")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -370,15 +438,21 @@ model Client {
   email           String?
   phone           String
   company         String?
-  status          ClientStatus @default(PROSPECT)
+  status          ClientStatus        @default(PROSPECT)
   notes           String?
+  address         String?
+  postalCode      String?
+  qualification   ClientQualification?
+  qualifiedAt     DateTime?
+  qualifiedById   String?
   assignedAgentId String?
   customData      Json?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
 
   tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   assignedAgent User?         @relation("AssignedAgent", fields: [assignedAgentId], references: [id], onDelete: SetNull)
+  qualifiedBy   User?         @relation("QualifiedBy", fields: [qualifiedById], references: [id], onDelete: SetNull)
   quotes        Quote[]
   invoices      Invoice[]
   appointments  Appointment[]
@@ -388,6 +462,7 @@ model Client {
 
   @@index([tenantId])
   @@index([tenantId, status])
+  @@index([tenantId, qualification])
   @@index([tenantId, assignedAgentId])
   @@map("clients")
 }
@@ -518,16 +593,18 @@ model InvoiceLine {
 // ─────────────────────────────────────────
 
 model Campaign {
-  id          String         @id @default(cuid())
-  tenantId    String
-  createdById String
-  name        String
-  description String?
-  status      CampaignStatus @default(DRAFT)
-  startDate   DateTime?
-  endDate     DateTime?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  id               String             @id @default(cuid())
+  tenantId         String
+  createdById      String
+  name             String
+  description      String?
+  status           CampaignStatus     @default(DRAFT)
+  type             CampaignType       @default(EMISSION)
+  callerIdRotation NumberRotationMode @default(MANUAL)
+  startDate        DateTime?
+  endDate          DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
 
   tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   createdBy     User             @relation("CampaignCreator", fields: [createdById], references: [id])
@@ -542,6 +619,10 @@ model Campaign {
   settings      CampaignSettings?
   qualifications Qualification[]
   scripts        Script[]
+  criteria      CampaignCriteria?
+  agentSessions AgentSession[]
+  qualityGrids  QualityGrid[]
+  numbers       CampaignNumber[]
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -559,6 +640,29 @@ model CampaignAgent {
 
   @@unique([campaignId, agentId])
   @@map("campaign_agents")
+}
+
+// ─────────────────────────────────────────
+// CampaignNumber — Numéros sortants
+// ─────────────────────────────────────────
+
+model CampaignNumber {
+  id         String   @id @default(cuid())
+  tenantId   String
+  campaignId String
+  number     String
+  label      String?
+  isActive   Boolean  @default(false)
+  position   Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, number])
+  @@index([tenantId])
+  @@index([campaignId])
+  @@map("campaign_numbers")
 }
 
 // ─────────────────────────────────────────
@@ -612,11 +716,15 @@ model Appointment {
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 
-  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  agent    User      @relation("AppointmentAgent", fields: [agentId], references: [id])
-  lead     Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  client   Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  tenant    Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agent     User                 @relation("AppointmentAgent", fields: [agentId], references: [id])
+  lead      Lead?                @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  campaign  Campaign?            @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  client    Client?              @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  responses        AppointmentResponse[]
+  score            AppointmentScore?
+  sale             Sale?
+  qaQualification  AppointmentQualification?
 
   @@index([tenantId])
   @@index([agentId])
@@ -691,18 +799,21 @@ model Call {
 // ─────────────────────────────────────────
 
 model AgentSession {
-  id           String            @id @default(cuid())
-  tenantId     String
-  agentId      String            @unique
-  availability AgentAvailability @default(OFFLINE)
-  extension    String
+  id            String            @id @default(cuid())
+  tenantId      String
+  agentId       String            @unique
+  availability  AgentAvailability @default(OFFLINE)
+  extension     String
   currentCallId String?
-  pauseReason  String?
-  loginAt      DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
+  campaignId    String?
+  pauseReason   String?
+  loginAt       DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  pendingQualificationCallLogId String?  // non-null = qualification requise avant prochain appel
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  agent  User   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agent    User      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([tenantId, availability])
@@ -722,6 +833,7 @@ model ContactList {
   source        String?
   description   String?
   status        ContactListStatus @default(ACTIVE)
+  isActive      Boolean           @default(true)
   totalContacts Int               @default(0)
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
@@ -750,8 +862,11 @@ model Contact {
   phone         String
   email         String?
   company       String?
+  department    String?
+  postalCode    String?
   status        ContactStatus @default(NEW)
   customData    Json?
+  tags          String[]
   attemptCount  Int           @default(0)
   lastCalledAt  DateTime?
   nextCallAt    DateTime?
@@ -768,6 +883,7 @@ model Contact {
   @@index([listId])
   @@index([tenantId, status])
   @@index([phone])
+  @@index([department])
   @@map("contacts")
 }
 
@@ -932,8 +1048,11 @@ model CallLog {
   rdvAt         DateTime?         // pour qualification APPOINTMENT
   callbackAt    DateTime?         // pour qualification CALLBACK
   scriptResponseId String?        // lien vers réponses script
-  qualifiedAt   DateTime?
-  reviewedAt    DateTime?
+  qualifiedAt          DateTime?
+  reviewedAt           DateTime?
+  postCallDurationSec  Int?
+  qualificationRequired Boolean  @default(false)
+  motifRefus           String?
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
@@ -941,7 +1060,8 @@ model CallLog {
   call     Call      @relation(fields: [callId], references: [id], onDelete: Cascade)
   agent    User?     @relation("CallLogAgent", fields: [agentId], references: [id], onDelete: SetNull)
   campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  callNotes CallNote[]
+  callNotes   CallNote[]
+  evaluations QualityEvaluation[]
 
   @@index([tenantId])
   @@index([tenantId, agentId])
@@ -1006,6 +1126,22 @@ enum SaleStatus {
   REFUNDED
 }
 
+enum CriteriaFieldType {
+  TEXT
+  NUMBER
+  BOOLEAN
+  SELECT
+  MULTI_SELECT
+}
+
+enum AppointmentQualificationStatus {
+  PENDING
+  OK
+  KO
+  HCC
+  HC
+}
+
 enum DialerMode {
   MANUAL
   PROGRESSIVE
@@ -1024,6 +1160,7 @@ model Sale {
   clientId      String?
   campaignId    String?
   callId        String?           @unique
+  appointmentId String?           @unique
   status        SaleStatus        @default(PENDING)
   amount        Decimal           @db.Decimal(10, 2)
   qualification CallQualification @default(SALE)
@@ -1032,12 +1169,13 @@ model Sale {
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
-  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  agent    User      @relation("AgentSales", fields: [agentId], references: [id])
-  client   Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  call     Call?     @relation(fields: [callId], references: [id], onDelete: SetNull)
-  logs     SaleLog[]
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agent       User        @relation("AgentSales", fields: [agentId], references: [id])
+  client      Client?     @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  campaign    Campaign?   @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  call        Call?       @relation(fields: [callId], references: [id], onDelete: SetNull)
+  appointment Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  logs        SaleLog[]
 
   @@index([tenantId])
   @@index([tenantId, agentId])
@@ -1670,4 +1808,384 @@ model AiUsage {
 
   @@unique([tenantId, month])
   @@map("ai_usage")
+}
+
+// ─────────────────────────────────────────
+// CampaignCriteria — Critères de qualification RDV par campagne
+// ─────────────────────────────────────────
+
+model CampaignCriteria {
+  id          String   @id @default(cuid())
+  tenantId    String
+  campaignId  String   @unique
+  name        String   @default("Critères de qualification")
+  description String?
+  minScoreOk  Int      @default(70)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant   Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaign Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  fields   CampaignCriteriaField[]
+
+  @@index([tenantId])
+  @@map("campaign_criteria")
+}
+
+model CampaignCriteriaField {
+  id         String            @id @default(cuid())
+  criteriaId String
+  label      String
+  key        String
+  type       CriteriaFieldType
+  required   Boolean           @default(false)
+  weight     Int               @default(1)
+  position   Int               @default(0)
+  options    Json?
+  validation Json?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  criteria  CampaignCriteria      @relation(fields: [criteriaId], references: [id], onDelete: Cascade)
+  responses AppointmentResponse[]
+
+  @@unique([criteriaId, key])
+  @@index([criteriaId])
+  @@map("campaign_criteria_fields")
+}
+
+// ─────────────────────────────────────────
+// AppointmentResponse — Réponses aux critères lors d'un RDV
+// ─────────────────────────────────────────
+
+model AppointmentResponse {
+  id            String   @id @default(cuid())
+  tenantId      String
+  appointmentId String
+  fieldId       String
+  value         String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  appointment Appointment           @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  field       CampaignCriteriaField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  tenant      Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([appointmentId, fieldId])
+  @@index([tenantId])
+  @@index([appointmentId])
+  @@map("appointment_responses")
+}
+
+// ─────────────────────────────────────────
+// AppointmentScore — Score et statut qualification RDV
+// ─────────────────────────────────────────
+
+model AppointmentScore {
+  id            String                         @id @default(cuid())
+  tenantId      String
+  appointmentId String                         @unique
+  score         Int
+  maxScore      Int
+  percentage    Float
+  status        AppointmentQualificationStatus @default(PENDING)
+  details       Json?
+  reviewedById  String?
+  reviewedAt    DateTime?
+  reviewNotes   String?
+  createdAt     DateTime                       @default(now())
+  updatedAt     DateTime                       @updatedAt
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  reviewedBy  User?       @relation("ScoreReviewer", fields: [reviewedById], references: [id])
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("appointment_scores")
+}
+
+// ─────────────────────────────────────────
+// Internal Chat — Messagerie interne équipe
+// ─────────────────────────────────────────
+
+model InternalChannel {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  description String?
+  isDefault   Boolean  @default(false)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User              @relation("ChannelCreator", fields: [createdById], references: [id])
+  messages  InternalMessage[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("internal_channels")
+}
+
+model InternalMessage {
+  id        String   @id @default(cuid())
+  tenantId  String
+  channelId String
+  userId    String
+  content   String   @db.Text
+  editedAt  DateTime?
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+
+  tenant  Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  channel InternalChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user    User            @relation("UserMessages", fields: [userId], references: [id])
+
+  @@index([tenantId, channelId])
+  @@index([channelId, createdAt])
+  @@map("internal_messages")
+}
+
+// ─────────────────────────────────────────
+// Quality — Enums
+// ─────────────────────────────────────────
+
+enum QualityActionType {
+  FORMATION
+  DEBRIEF
+  RECADRAGE
+}
+
+enum HrRequestType {
+  ABSENCE
+  FORMATION
+  CONGE
+}
+
+enum HrRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// ─────────────────────────────────────────
+// QualityGrid — Grille qualité configurable par campagne
+// ─────────────────────────────────────────
+
+model QualityGrid {
+  id         String   @id @default(cuid())
+  tenantId   String
+  campaignId String?
+  name       String
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaign    Campaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  items       QualityGridItem[]
+  evaluations QualityEvaluation[]
+
+  @@index([tenantId])
+  @@index([tenantId, campaignId])
+  @@map("quality_grids")
+}
+
+model QualityGridItem {
+  id         String  @id @default(cuid())
+  gridId     String
+  name       String
+  weight     Float   @default(1.0)
+  maxScore   Int     @default(5)
+  isRequired Boolean @default(false)
+  position   Int     @default(0)
+
+  grid      QualityGrid           @relation(fields: [gridId], references: [id], onDelete: Cascade)
+  evalItems QualityEvalItem[]
+
+  @@index([gridId])
+  @@map("quality_grid_items")
+}
+
+// ─────────────────────────────────────────
+// QualityEvaluation — Évaluation d'un appel
+// ─────────────────────────────────────────
+
+model QualityEvaluation {
+  id          String   @id @default(cuid())
+  tenantId    String
+  callLogId   String
+  agentId     String
+  evaluatorId String
+  gridId      String
+  score       Float
+  maxScore    Float
+  percentage  Float
+  comment     String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  callLog   CallLog           @relation(fields: [callLogId], references: [id], onDelete: Cascade)
+  agent     User              @relation("EvaluatedAgent", fields: [agentId], references: [id])
+  evaluator User              @relation("Evaluator", fields: [evaluatorId], references: [id])
+  grid      QualityGrid       @relation(fields: [gridId], references: [id])
+  items     QualityEvalItem[]
+  actions   QualityAction[]
+
+  @@unique([callLogId, evaluatorId])
+  @@index([tenantId])
+  @@index([tenantId, agentId])
+  @@index([tenantId, createdAt])
+  @@map("quality_evaluations")
+}
+
+model QualityEvalItem {
+  id           String  @id @default(cuid())
+  evaluationId String
+  gridItemId   String
+  score        Int
+  comment      String?
+
+  evaluation QualityEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  gridItem   QualityGridItem   @relation(fields: [gridItemId], references: [id])
+
+  @@unique([evaluationId, gridItemId])
+  @@map("quality_eval_items")
+}
+
+// ─────────────────────────────────────────
+// AppointmentQualification — Qualification RDV par QA
+// ─────────────────────────────────────────
+
+model AppointmentQualification {
+  id              String                         @id @default(cuid())
+  tenantId        String
+  appointmentId   String                         @unique
+  qualifiedById   String
+  status          AppointmentQualificationStatus
+  qualityScore    Int?
+  comment         String?                        @db.Text
+  createdAt       DateTime                       @default(now())
+  updatedAt       DateTime                       @updatedAt
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  qualifiedBy User        @relation("QualifiedBy", fields: [qualifiedById], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, qualifiedById])
+  @@map("appointment_qualifications")
+}
+
+// ─────────────────────────────────────────
+// QualityAction — Actions correctives
+// ─────────────────────────────────────────
+
+model QualityAction {
+  id           String            @id @default(cuid())
+  tenantId     String
+  agentId      String
+  createdById  String
+  evaluationId String?
+  type         QualityActionType
+  comment      String            @db.Text
+  createdAt    DateTime          @default(now())
+
+  tenant     Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agent      User               @relation("ActionTarget", fields: [agentId], references: [id])
+  createdBy  User               @relation("ActionCreator", fields: [createdById], references: [id])
+  evaluation QualityEvaluation? @relation(fields: [evaluationId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, agentId])
+  @@map("quality_actions")
+}
+
+// ─────────────────────────────────────────
+// HrRequest — Demandes d'absence / formation / congé
+// ─────────────────────────────────────────
+
+model HrRequest {
+  id             String          @id @default(cuid())
+  tenantId       String
+  agentId        String
+  type           HrRequestType
+  startDate      DateTime
+  endDate        DateTime
+  comment        String?         @db.Text
+  status         HrRequestStatus @default(PENDING)
+  reviewedById   String?
+  reviewedAt     DateTime?
+  reviewComment  String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  tenant     Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agent      User    @relation("HrRequestAgent", fields: [agentId], references: [id])
+  reviewedBy User?   @relation("HrReviewer", fields: [reviewedById], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, agentId])
+  @@index([tenantId, status])
+  @@index([tenantId, startDate])
+  @@map("hr_requests")
+}
+
+// ─────────────────────────────────────────
+// HrAttendance — Suivi présence journalier
+// ─────────────────────────────────────────
+
+model HrAttendance {
+  id               String   @id @default(cuid())
+  tenantId         String
+  agentId          String
+  date             DateTime @db.Date
+  hoursWorked      Float    @default(0)
+  minutesProductive Int     @default(0)
+  isPresent        Boolean  @default(true)
+  notes            String?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agent  User   @relation("AttendanceAgent", fields: [agentId], references: [id])
+
+  @@unique([tenantId, agentId, date])
+  @@index([tenantId])
+  @@index([tenantId, agentId])
+  @@index([tenantId, date])
+  @@map("hr_attendance")
+}
+
+// ─────────────────────────────────────────
+// CallSupervisionLog — Écoute / Whisper superviseur
+// ─────────────────────────────────────────
+
+enum SupervisionAction {
+  LISTEN
+  WHISPER
+  BARGE
+  STOP
+}
+
+model CallSupervisionLog {
+  id           String            @id @default(cuid())
+  tenantId     String
+  supervisorId String
+  agentId      String
+  callId       String?
+  action       SupervisionAction
+  channel      String?
+  startedAt    DateTime          @default(now())
+  endedAt      DateTime?
+
+  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supervisor User   @relation("SupervisionSupervisor", fields: [supervisorId], references: [id])
+  agent      User   @relation("SupervisionAgent", fields: [agentId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, supervisorId])
+  @@index([tenantId, agentId])
+  @@map("call_supervision_logs")
 }
