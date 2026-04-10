@@ -3,6 +3,16 @@ import { IsString, IsOptional, IsEnum } from 'class-validator';
 export class AgentLoginDto {
   @IsString()
   extension: string;
+
+  @IsString()
+  @IsOptional()
+  campaignId?: string;
+}
+
+export class AgentCampaignDto {
+  @IsString()
+  @IsOptional()
+  campaignId?: string | null;
 }
 
 export class AgentPauseDto {
