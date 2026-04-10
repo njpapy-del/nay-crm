@@ -26,18 +26,25 @@ interface Filters {
   minAmount: string; maxAmount: string;
 }
 
-interface Props { value: Filters; onChange: (f: Filters) => void; }
+interface Props { value: Filters; onChange: (f: Filters) => void; isAgent?: boolean; }
 interface Agent { id: string; firstName: string; lastName: string; }
 interface Campaign { id: string; name: string; }
 
-export function SaleFilters({ value, onChange }: Props) {
+export function SaleFilters({ value, onChange, isAgent = false }: Props) {
   const [agents,    setAgents]    = useState<Agent[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
 
   useEffect(() => {
-    Promise.all([api.get('/users?role=AGENT&limit=100'), api.get('/campaigns?limit=100')])
-      .then(([a, c]) => { setAgents(a.data.data); setCampaigns(c.data.data); });
-  }, []);
+    const requests = isAgent
+      ? [Promise.resolve(null), api.get('/campaigns?limit=100')]
+      : [api.get('/users?role=AGENT&limit=100'), api.get('/campaigns?limit=100')];
+    Promise.allSettled(requests).then(([a, c]) => {
+      if (!isAgent && a.status === 'fulfilled' && a.value)
+        setAgents(a.value.data?.data ?? a.value.data ?? []);
+      if (c.status === 'fulfilled' && c.value)
+        setCampaigns(c.value.data?.data ?? c.value.data ?? []);
+    });
+  }, [isAgent]);
 
   const set = useCallback((key: keyof Filters) => (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
     onChange({ ...value, [key]: e.target.value });
@@ -45,10 +52,12 @@ export function SaleFilters({ value, onChange }: Props) {
 
   return (
     <div className="flex flex-wrap gap-2 items-end">
-      <select value={value.agentId} onChange={set('agentId')} className="input-field text-sm h-9 w-44">
-        <option value="">Tous agents</option>
-        {agents.map((a) => <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>)}
-      </select>
+      {!isAgent && (
+        <select value={value.agentId} onChange={set('agentId')} className="input-field text-sm h-9 w-44">
+          <option value="">Tous agents</option>
+          {agents.map((a) => <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>)}
+        </select>
+      )}
 
       <select value={value.campaignId} onChange={set('campaignId')} className="input-field text-sm h-9 w-44">
         <option value="">Toutes campagnes</option>

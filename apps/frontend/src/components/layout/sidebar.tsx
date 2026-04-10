@@ -7,59 +7,81 @@ import {
   FileText, Receipt, Megaphone, CalendarDays, Headphones, MonitorPlay,
   List, ShieldOff, History, Mic, PhoneCall, TrendingUp, CalendarRange,
   LineChart, Target, Building2, CreditCard, UserCog, ScrollText,
-  Activity, CalendarCheck, BrainCircuit,
+  Activity, CalendarCheck, BrainCircuit, MessageSquare,
+  Star, UserCheck, ClipboardList, GraduationCap, Shield,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useAuthStore } from '@/stores/auth.store';
+import { usePermissionsStore } from '@/stores/permissions.store';
 import { useRouter } from 'next/navigation';
 import { Logo } from '@/components/ui/logo';
 
-type Role = 'ADMIN' | 'MANAGER' | 'AGENT' | 'QUALITY';
+type Role = 'ADMIN' | 'MANAGER' | 'AGENT' | 'QUALITY' | 'QUALITY_SUPERVISOR' | 'HR';
 
 interface NavItem {
   label: string;
   href: string;
   icon: React.ElementType;
   roles: Role[];
+  navKey: string;  // clé pour le système de permissions
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard',    href: '/dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'MANAGER', 'AGENT'] },
-  { label: 'Clients',      href: '/clients',   icon: Users,           roles: ['ADMIN', 'MANAGER', 'AGENT'] },
-  { label: 'Devis',        href: '/quotes',     icon: FileText,     roles: ['ADMIN', 'MANAGER'] },
-  { label: 'Factures',     href: '/invoices',   icon: Receipt,      roles: ['ADMIN', 'MANAGER'] },
-  { label: 'Campagnes',    href: '/campaigns',  icon: Megaphone,    roles: ['ADMIN', 'MANAGER', 'AGENT'] },
-  { label: 'Calendrier',   href: '/calendar',   icon: CalendarDays,  roles: ['ADMIN', 'MANAGER', 'AGENT'] },
-  { label: 'Agenda',       href: '/agenda',     icon: CalendarRange, roles: ['ADMIN', 'MANAGER', 'AGENT'] },
-  { label: 'Ventes',       href: '/sales',      icon: TrendingUp,    roles: ['ADMIN', 'MANAGER', 'AGENT'] },
-  { label: 'Espace Agent',  href: '/agent',      icon: Headphones,   roles: ['AGENT', 'MANAGER', 'ADMIN'] },
-  { label: 'Supervision',       href: '/supervisor',    icon: MonitorPlay,   roles: ['ADMIN', 'MANAGER'] },
-  { label: 'Suivi agents',      href: '/agent-monitor', icon: Activity,      roles: ['ADMIN', 'MANAGER'] },
-  { label: 'Planning',          href: '/planning',      icon: CalendarCheck, roles: ['ADMIN', 'MANAGER', 'AGENT'] },
-  { label: 'Appels',        href: '/calls',      icon: Phone,        roles: ['ADMIN', 'MANAGER', 'AGENT'] },
-  { label: 'Listes',         href: '/lists',       icon: List,      roles: ['ADMIN', 'MANAGER'] },
-  { label: 'Blacklist',      href: '/blacklist',   icon: ShieldOff, roles: ['ADMIN', 'MANAGER'] },
-  { label: 'Imports',        href: '/imports',     icon: History,   roles: ['ADMIN', 'MANAGER'] },
-  { label: 'Enregistrements',href: '/recordings',  icon: Mic,       roles: ['ADMIN', 'MANAGER'] },
-  { label: 'Journal appels', href: '/call-logs',   icon: PhoneCall, roles: ['ADMIN', 'MANAGER', 'AGENT'] },
-  { label: 'IA Analytique ✦', href: '/ai-analytics', icon: BrainCircuit, roles: ['ADMIN', 'MANAGER', 'QUALITY'] },
-  { label: 'KPIs',          href: '/kpi',        icon: Target,          roles: ['ADMIN', 'MANAGER'] },
-  { label: 'Rapports',     href: '/reports',   icon: BarChart2,       roles: ['ADMIN', 'MANAGER'] },
-  { label: 'Analytiques',  href: '/analytics', icon: LineChart,       roles: ['ADMIN', 'MANAGER'] },
-  { label: 'Utilisateurs', href: '/users',     icon: Users,           roles: ['ADMIN'] },
-  { label: 'Paramètres',   href: '/settings',  icon: Settings,        roles: ['ADMIN'] },
-  { label: 'Mon entreprise', href: '/account',              icon: Building2,  roles: ['ADMIN'] },
-  { label: 'Équipe',         href: '/account/team',         icon: UserCog,    roles: ['ADMIN', 'MANAGER'] },
-  { label: 'Abonnement',     href: '/account/subscription', icon: CreditCard,   roles: ['ADMIN'] },
-  { label: 'Scripts',        href: '/scripts',              icon: ScrollText,   roles: ['ADMIN', 'MANAGER'] },
+  { label: 'Dashboard',         href: '/dashboard',              icon: LayoutDashboard, roles: ['ADMIN', 'MANAGER', 'AGENT'],                                       navKey: 'dashboard' },
+  { label: 'Clients',           href: '/clients',                icon: Users,           roles: ['ADMIN', 'MANAGER', 'AGENT'],                                       navKey: 'clients' },
+  { label: 'Devis',             href: '/quotes',                 icon: FileText,        roles: ['ADMIN', 'MANAGER'],                                                navKey: 'quotes' },
+  { label: 'Factures',          href: '/invoices',               icon: Receipt,         roles: ['ADMIN', 'MANAGER'],                                                navKey: 'invoices' },
+  { label: 'Campagnes',         href: '/campaigns',              icon: Megaphone,       roles: ['ADMIN', 'MANAGER', 'AGENT'],                                       navKey: 'campaigns' },
+  { label: 'Calendrier',        href: '/calendar',               icon: CalendarDays,    roles: ['ADMIN', 'MANAGER', 'AGENT'],                                       navKey: 'calendar' },
+  { label: 'Agenda',            href: '/agenda',                 icon: CalendarRange,   roles: ['ADMIN', 'MANAGER', 'AGENT'],                                       navKey: 'agenda' },
+  { label: 'Ventes',            href: '/sales',                  icon: TrendingUp,      roles: ['ADMIN', 'MANAGER', 'AGENT'],                                       navKey: 'sales' },
+  { label: 'Chat équipe',       href: '/chat',                   icon: MessageSquare,   roles: ['ADMIN', 'MANAGER', 'AGENT', 'QUALITY'],                            navKey: 'chat' },
+  { label: 'Espace Agent',      href: '/agent',                  icon: Headphones,      roles: ['AGENT', 'MANAGER', 'ADMIN'],                                       navKey: 'agent' },
+  { label: 'Supervision',       href: '/supervisor',             icon: MonitorPlay,     roles: ['ADMIN', 'MANAGER'],                                                navKey: 'supervision' },
+  { label: 'Supervision live',  href: '/supervision',            icon: Headphones,      roles: ['ADMIN', 'MANAGER'],                                                navKey: 'supervisor' },
+  { label: 'Suivi agents',      href: '/agent-monitor',          icon: Activity,        roles: ['ADMIN', 'MANAGER'],                                                navKey: 'agent-monitor' },
+  { label: 'Planning',          href: '/planning',               icon: CalendarCheck,   roles: ['ADMIN', 'MANAGER', 'AGENT'],                                       navKey: 'planning' },
+  { label: 'Appels',            href: '/calls',                  icon: Phone,           roles: ['ADMIN', 'MANAGER', 'AGENT'],                                       navKey: 'calls' },
+  { label: 'Listes',            href: '/lists',                  icon: List,            roles: ['ADMIN', 'MANAGER'],                                                navKey: 'lists' },
+  { label: 'Blacklist',         href: '/blacklist',              icon: ShieldOff,       roles: ['ADMIN', 'MANAGER'],                                                navKey: 'blacklist' },
+  { label: 'Imports',           href: '/imports',                icon: History,         roles: ['ADMIN', 'MANAGER'],                                                navKey: 'imports' },
+  { label: 'Enregistrements',   href: '/recordings',             icon: Mic,             roles: ['ADMIN', 'MANAGER'],                                                navKey: 'recordings' },
+  { label: 'Journal appels',    href: '/call-logs',              icon: PhoneCall,       roles: ['ADMIN', 'MANAGER', 'AGENT'],                                       navKey: 'call-logs' },
+  { label: 'IA Analytique ✦',   href: '/ai-analytics',           icon: BrainCircuit,    roles: ['ADMIN', 'MANAGER', 'QUALITY'],                                     navKey: 'ai-analytics' },
+  { label: 'Qualité',           href: '/quality',                icon: Star,            roles: ['ADMIN', 'MANAGER', 'QUALITY', 'QUALITY_SUPERVISOR'],                navKey: 'quality' },
+  { label: 'Évaluations',       href: '/quality/evaluations',    icon: ClipboardList,   roles: ['ADMIN', 'MANAGER', 'QUALITY', 'QUALITY_SUPERVISOR'],                navKey: 'quality' },
+  { label: 'Grilles QA',        href: '/quality/grids',          icon: GraduationCap,   roles: ['ADMIN', 'MANAGER', 'QUALITY_SUPERVISOR'],                          navKey: 'quality' },
+  { label: 'Qualif. RDV',       href: '/quality/qualifications', icon: UserCheck,       roles: ['ADMIN', 'MANAGER', 'QUALITY', 'QUALITY_SUPERVISOR'],                navKey: 'quality' },
+  { label: 'RH',                href: '/hr',                     icon: Users,           roles: ['ADMIN', 'MANAGER', 'HR'],                                          navKey: 'hr' },
+  { label: 'Demandes RH',       href: '/hr/requests',            icon: FileText,        roles: ['ADMIN', 'MANAGER', 'AGENT', 'QUALITY', 'QUALITY_SUPERVISOR', 'HR'], navKey: 'hr' },
+  { label: 'Présences',         href: '/hr/attendance',          icon: Activity,        roles: ['ADMIN', 'MANAGER', 'HR'],                                          navKey: 'hr' },
+  { label: 'Agenda RH',         href: '/hr/agenda',              icon: CalendarRange,   roles: ['ADMIN', 'MANAGER', 'HR', 'AGENT', 'QUALITY', 'QUALITY_SUPERVISOR'], navKey: 'hr' },
+  { label: 'KPIs',              href: '/kpi',                    icon: Target,          roles: ['ADMIN', 'MANAGER'],                                                navKey: 'kpi' },
+  { label: 'Rapports',          href: '/reports',                icon: BarChart2,       roles: ['ADMIN', 'MANAGER'],                                                navKey: 'reports' },
+  { label: 'Analytiques',       href: '/analytics',              icon: LineChart,       roles: ['ADMIN', 'MANAGER'],                                                navKey: 'analytics' },
+  { label: 'Utilisateurs',      href: '/users',                  icon: Users,           roles: ['ADMIN'],                                                           navKey: 'users' },
+  { label: 'Paramètres',        href: '/settings',               icon: Settings,        roles: ['ADMIN'],                                                           navKey: 'settings' },
+  { label: 'Permissions menu',  href: '/settings/permissions',   icon: Shield,          roles: ['ADMIN'],                                                           navKey: 'settings' },
+  { label: 'Mon entreprise',    href: '/account',                icon: Building2,       roles: ['ADMIN'],                                                           navKey: 'settings' },
+  { label: 'Équipe',            href: '/account/team',           icon: UserCog,         roles: ['ADMIN', 'MANAGER'],                                                navKey: 'users' },
+  { label: 'Abonnement',        href: '/account/subscription',   icon: CreditCard,      roles: ['ADMIN'],                                                           navKey: 'settings' },
+  { label: 'Scripts',           href: '/scripts',                icon: ScrollText,      roles: ['ADMIN', 'MANAGER'],                                                navKey: 'scripts' },
 ];
 
 export function Sidebar({ role }: { role: Role }) {
   const pathname = usePathname();
   const router = useRouter();
   const { logout } = useAuthStore();
+  const menuPerms = usePermissionsStore(s => s.menuPerms);
 
-  const visibleItems = NAV_ITEMS.filter((item) => item.roles.includes(role));
+  const visibleItems = NAV_ITEMS.filter((item) => {
+    // ADMIN voit tout sans filtre
+    if (role === 'ADMIN') return true;
+    // Si permissions chargées → elles sont la source unique de vérité
+    if (menuPerms) return menuPerms[item.navKey] === true;
+    // Fallback si permissions pas encore chargées → filtre par rôle
+    return item.roles.includes(role);
+  });
 
   const handleLogout = () => {
     logout();

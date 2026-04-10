@@ -40,14 +40,14 @@ export function SaleForm({ initial, onSubmit, onCancel, loading }: Props) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
 
   useEffect(() => {
-    Promise.all([
+    Promise.allSettled([
       api.get('/users?role=AGENT&limit=100'),
       api.get('/clients?limit=100'),
       api.get('/campaigns?status=ACTIVE&limit=100'),
     ]).then(([a, c, camp]) => {
-      setAgents(a.data.data);
-      setClients(c.data.data);
-      setCampaigns(camp.data.data);
+      if (a.status === 'fulfilled') setAgents(a.value.data?.data ?? a.value.data ?? []);
+      if (c.status === 'fulfilled') setClients(c.value.data?.data ?? c.value.data ?? []);
+      if (camp.status === 'fulfilled') setCampaigns(camp.value.data?.data ?? camp.value.data ?? []);
     });
   }, []);
 
