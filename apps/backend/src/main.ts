@@ -23,10 +23,15 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   const port = configService.get<number>('port') ?? 3001;
 
-  // CORS
-  const allowedOrigins = (process.env.FRONTEND_URL ?? 'http://localhost:3000')
-    .split(',')
-    .map((o) => o.trim());
+  // CORS — origins autorisées : frontend local + domaine Cloudflare Tunnel
+  const rawOrigins = [
+    process.env.FRONTEND_URL    ?? 'http://localhost:3000',
+    process.env.FRONTEND_CF_URL ?? '',   // ex: https://app.lnaycrm.com
+  ];
+  const allowedOrigins = rawOrigins
+    .flatMap((o) => o.split(','))
+    .map((o) => o.trim())
+    .filter(Boolean);
 
   app.enableCors({
     origin: (origin, cb) => {
@@ -36,8 +41,11 @@ async function bootstrap() {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'CF-Connecting-IP'],
   });
+
+  // Trust Cloudflare proxy (X-Forwarded-For, CF-Connecting-IP pour throttler/logs)
+  app.set('trust proxy', ['loopback', 'linklocal', 'uniquelocal']);
 
   // Global prefix
   app.setGlobalPrefix('api/v1');
